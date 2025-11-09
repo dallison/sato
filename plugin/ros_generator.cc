@@ -251,6 +251,10 @@ std::string RosGenerator::GetROSType(
     case google::protobuf::FieldDescriptor::TYPE_BYTES:
       base_type = "std::string";
       break;
+    case google::protobuf::FieldDescriptor::TYPE_MESSAGE:
+      // For nested messages, use the message type name
+      base_type = field->message_type()->name();
+      break;
     default:
       base_type = "int32_t";  // Default fallback
       break;

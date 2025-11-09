@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package demo;
+
+// Simple coordinate message
+message Coordinate {
+  double x = 1;
+  double y = 2;
+}
+
+// Message with nested type
+message Location {
+  string name = 1;
+  Coordinate position = 2;  // Nested message
+  double altitude = 3;
+}
+
+// Message with repeated nested types
+message Path {
+  string path_id = 1;
+  repeated Coordinate waypoints = 2;  // Repeated nested message
+  double total_distance = 3;
+}
