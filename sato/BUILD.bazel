@@ -1,0 +1,16 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_test(
+    name = "sato_test",
+    srcs = [
+        "sato_test.cc",
+    ],
+    deps = [
+        "//sato/testdata:test_message_cc_proto",
+        "//sato/testdata:test_message_phaser",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_googletest//:gtest",
+        "@toolbelt//toolbelt",
+    ],
+)
+

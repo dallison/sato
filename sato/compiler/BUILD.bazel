@@ -1,0 +1,37 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "sato_lib",
+    srcs = [
+        "enum_gen.cc",
+        "gen.cc",
+        "message_gen.cc",
+    ],
+    hdrs = [
+        "enum_gen.h",
+        "gen.h",
+        "message_gen.h",
+    ],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_protobuf//:protoc_lib",
+    ],
+)
+
+cc_binary(
+    name = "sato",
+    srcs = [
+        "main.cc",
+    ],
+    deps = [
+        ":sato_lib",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@com_google_protobuf//:protoc_lib",
+    ],
+)
