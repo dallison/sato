@@ -13,7 +13,7 @@
 #include <string>
 #include <string_view>
 
-namespace phaser {
+namespace sato {
 
 enum class WireType {
   kVarint = 0,
@@ -388,4 +388,4 @@ private:
   char *end_ = nullptr;
 };
 
-} // namespace phaser
+} // namespace sato

@@ -1,0 +1,56 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "sato_runtime",
+    srcs = [
+        "message.cc",
+        "sato_bank.cc",
+    ],
+    hdrs = [
+        "any.h",
+        "fields.h",
+        "iterators.h",
+        "message.h",
+        "runtime.h",
+        "union.h",
+        "vectors.h",
+        "wireformat.h",
+        "sato_bank.h",
+    ],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:span",
+        "@toolbelt//toolbelt",
+    ],
+)
+
+cc_test(
+    name = "message_test",
+    srcs = [
+        "message_test.cc",
+    ],
+    deps = [
+        ":sato_runtime",
+        "//sato/testdata:test_message_cc_proto",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_googletest//:gtest",
+        "@toolbelt//toolbelt",
+    ],
+)
+
+cc_test(
+    name = "wireformat_test",
+    srcs = [
+        "wireformat_test.cc",
+    ],
+    deps = [
+        ":sato_runtime",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_googletest//:gtest",
+        "@toolbelt//toolbelt",
+    ],
+)
