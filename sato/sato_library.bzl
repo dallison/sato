@@ -1,12 +1,12 @@
 """
-This module provides a rule to generate phaser message files from proto_library targets.
+This module provides a rule to generate sato message files from proto_library targets.
 """
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
 
 MessageInfo = provider(fields = ["direct_sources", "transitive_sources", "cpp_outputs"])
 
-def _phaser_action(
+def _sato_action(
         ctx,
         direct_sources,
         transitive_sources,
@@ -20,9 +20,9 @@ def _phaser_action(
     # by a colon and the output directory.
     options_and_out_dir = ""
     if add_namespace != "":
-        options_and_out_dir = "--phaser_out=add_namespace={},package_name={},target_name={}:{}".format(add_namespace, package_name, target_name, out_dir)
+        options_and_out_dir = "--sato_out=add_namespace={},package_name={},target_name={}:{}".format(add_namespace, package_name, target_name, out_dir)
     else:
-        options_and_out_dir = "--phaser_out=package_name={},target_name={}:{}".format(package_name, target_name, out_dir)
+        options_and_out_dir = "--sato_out=package_name={},target_name={}:{}".format(package_name, target_name, out_dir)
 
     inputs = depset(direct = direct_sources, transitive = transitive_sources)
 
@@ -36,8 +36,8 @@ def _phaser_action(
                     slash = f.path.find("/", index + 17)
                     import_paths.append("-I" + f.path[:slash])
 
-    plugin, _, plugin_manifests = ctx.resolve_command(tools = [ctx.attr.phaser_plugin])
-    plugin_arg = "--plugin=protoc-gen-phaser={}".format(ctx.executable.phaser_plugin.path)
+    plugin, _, plugin_manifests = ctx.resolve_command(tools = [ctx.attr.sato_plugin])
+    plugin_arg = "--plugin=protoc-gen-sato={}".format(ctx.executable.sato_plugin.path)
 
     args = ctx.actions.args()
     args.add(plugin_arg)
@@ -53,20 +53,21 @@ def _phaser_action(
         executable = ctx.executable.protoc,
         outputs = outputs,
         arguments = [args],
-        progress_message = "Generating phaser message files %s" % ctx.label,
+        progress_message = "Generating sato message files %s" % ctx.label,
         mnemonic = "Phaser",
     )
 
 # This aspect generates the MessageInfo provider containing the files we
 # will generate from running the Phaser plugin.
-def _phaser_aspect_impl(target, _ctx):
+def _sato_aspect_impl(target, _ctx):
     direct_sources = []
     transitive_sources = depset()
     cpp_outputs = []
 
     def add_output(base):
-        cpp_outputs.append(paths.replace_extension(base, ".phaser.cc"))
-        cpp_outputs.append(paths.replace_extension(base, ".phaser.h"))
+        cpp_outputs.append(paths.replace_extension(base, ".sato.cc"))
+        cpp_outputs.append(paths.replace_extension(base, ".sato.h"))
+        cpp_outputs.append(paths.replace_extension(base, ".h"))
 
     if ProtoInfo in target:
         transitive_sources = target[ProtoInfo].transitive_sources
@@ -79,7 +80,7 @@ def _phaser_aspect_impl(target, _ctx):
                 # The path looks like:
                 # ../com_google_protobuf/_virtual_imports/any_proto/google/protobuf/any.proto
                 # We want to declare the file as:ƒ
-                # google/protobuf/any.phaser.cc
+                # google/protobuf/any.sato.cc
                 v = file_path.split("_virtual_imports/")
 
                 # Remove the first directory of v[1] to get the path relative to the package.
@@ -92,15 +93,15 @@ def _phaser_aspect_impl(target, _ctx):
         cpp_outputs = cpp_outputs,
     )]
 
-phaser_aspect = aspect(
+sato_aspect = aspect(
     attr_aspects = ["deps"],
     provides = [MessageInfo],
-    implementation = _phaser_aspect_impl,
+    implementation = _sato_aspect_impl,
 )
 
-# The phaser rule runs the Phaser plugin from the protoc compiler.
+# The sato rule runs the Phaser plugin from the protoc compiler.
 # The deps for the rule are proto_libraries that contain the protobuf files.
-def _phaser_impl(ctx):
+def _sato_impl(ctx):
     outputs = []
   
     direct_sources = []
@@ -116,11 +117,11 @@ def _phaser_impl(ctx):
 
             # If we are creating a header file in our package, we need to create a symlink to it.
             # This is because the header file will be something like
-            # phaser/testdata/phaser/testdata/Test.phaser.h
+            # sato/testdata/sato/testdata/Test.sato.h
             # but we want to be able to do:
-            # #include "phaser/testdata/Test.phaser.h"
+            # #include "sato/testdata/Test.sato.h"
             # so we create the symlink:
-            # Test.phaser.h -> phaser/testdata/phaser/testdata/Test.phaser.h
+            # Test.sato.h -> sato/testdata/sato/testdata/Test.sato.h
             if out_file.extension == "h":
                 prefix = paths.join(ctx.attr.target_name, package_name)
                 symlink_name = out_file.short_path[len(prefix) + 1:]
@@ -139,7 +140,7 @@ def _phaser_impl(ctx):
         transitive_sources.append(dep[MessageInfo].transitive_sources)
         outputs += dep_outs
 
-    _phaser_action(
+    _sato_action(
         ctx,
         direct_sources,
         transitive_sources,
@@ -152,26 +153,26 @@ def _phaser_impl(ctx):
 
     return [DefaultInfo(files = depset(outputs))]
 
-_phaser_gen = rule(
+_sato_gen = rule(
     attrs = {
         "protoc": attr.label(
             executable = True,
             default = Label("@com_google_protobuf//:protoc"),
             cfg = "exec",
         ),
-        "phaser_plugin": attr.label(
+        "sato_plugin": attr.label(
             executable = True,
-            default = Label("//phaser/compiler:phaser"),
+            default = Label("//sato/compiler:sato"),
             cfg = "exec",
         ),
         "deps": attr.label_list(
-            aspects = [phaser_aspect],
+            aspects = [sato_aspect],
         ),
         "add_namespace": attr.string(),
         "package_name": attr.string(),
         "target_name": attr.string(),
     },
-    implementation = _phaser_impl,
+    implementation = _sato_impl,
 )
 
 def _split_files_impl(ctx):
@@ -190,7 +191,7 @@ _split_files = rule(
     implementation = _split_files_impl,
 )
 
-def phaser_library(name, deps = [], runtime = "@phaser//phaser/runtime:phaser_runtime", add_namespace = ""):
+def sato_library(name, deps = [], runtime = "@sato//sato/runtime:sato_runtime", add_namespace = ""):
     """
     Generate a cc_libary for protobuf files specified in deps.
 
@@ -198,13 +199,13 @@ def phaser_library(name, deps = [], runtime = "@phaser//phaser/runtime:phaser_ru
         name: name
         deps: proto_libraries that contain the protobuf files
         deps: dependencies
-        runtime: label for phaser runtime.
+        runtime: label for sato runtime.
         add_namespace: add given namespace to the message output
     """
-    phaser = name + "_phaser"
+    sato = name + "_sato"
 
-    _phaser_gen(
-        name = phaser,
+    _sato_gen(
+        name = sato,
         deps = deps,
         add_namespace = add_namespace,
         package_name = native.package_name(),
@@ -215,14 +216,14 @@ def phaser_library(name, deps = [], runtime = "@phaser//phaser/runtime:phaser_ru
     _split_files(
         name = srcs,
         ext = "cc",
-        deps = [phaser],
+        deps = [sato],
     )
 
     hdrs = name + "_hdrs"
     _split_files(
         name = hdrs,
         ext = "h",
-        deps = [phaser],
+        deps = [sato],
     )
 
     libdeps = []

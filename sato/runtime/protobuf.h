@@ -284,12 +284,12 @@ public:
   // Tag has already been read.
   template <typename T, bool Signed> absl::StatusOr<T> DeserializeVarint() {
     uint32_t value = 0;
-    for (int shift = 0; shift < sizeof(T) * 8; shift += 7) {
+    for (size_t shift = 0; shift < sizeof(T) * 8; shift += 7) {
       if (absl::Status status = Check(1); !status.ok()) {
         return status;
       }
       uint32_t byte = *addr_++;
-      value |= (byte & 0x7f) << shift;
+      value |= (byte & 0x7f) << int(shift);
       if ((byte & 0x80) == 0) {
         return Signed ? ZagZig(value) : value;
       }

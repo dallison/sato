@@ -13,15 +13,26 @@
 #include <memory>
 #include <vector>
 
-namespace phaser {
+#include "google/protobuf/compiler/code_generator.h"
+#include "google/protobuf/compiler/plugin.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/io/zero_copy_stream.h"
 
+namespace sato {
+
+  void
+WriteToZeroCopyStream(const std::string &data,
+                      google::protobuf::io::ZeroCopyOutputStream *stream);
 struct FieldInfo {
   // Constructor.
   FieldInfo(const google::protobuf::FieldDescriptor *f, uint32_t o, uint32_t i,
             const std::string &name, const std::string &mtype,
-            const std::string &ctype, uint32_t size)
+            const std::string &ctype, const std::string &ros_type, uint32_t size)
       : field(f), offset(o), id(i), member_name(name), member_type(mtype),
-        c_type(ctype), binary_size(size) {}
+        c_type(ctype), ros_type(ros_type), binary_size(size) {
+          // Remove trailing underscore from the ROS member name.
+          ros_member_name = member_name.substr(0, member_name.size() - 1);
+        }
   virtual ~FieldInfo() = default;
   virtual bool IsUnion() const { return false; }
   const google::protobuf::FieldDescriptor *field;
@@ -30,6 +41,8 @@ struct FieldInfo {
   std::string member_name;
   std::string member_type;
   std::string c_type;
+  std::string ros_type;
+  std::string ros_member_name;
   uint32_t binary_size;
 };
 
@@ -37,7 +50,7 @@ struct UnionInfo : public FieldInfo {
   // Constructor
   UnionInfo(const google::protobuf::OneofDescriptor *o, uint32_t size,
             const std::string &name, const std::string &type)
-      : FieldInfo(nullptr, 0, 0, name, type, "", 4), oneof(o),
+      : FieldInfo(nullptr, 0, 0, name, type, "", "", 4), oneof(o),
         binary_size(size) {}
   bool IsUnion() const override { return true; }
   const google::protobuf::OneofDescriptor *oneof;
@@ -63,8 +76,11 @@ public:
     }
   }
 
+  void Compile();
+
   void GenerateHeader(std::ostream &os);
   void GenerateSource(std::ostream &os);
+  void GenerateROSMessage(std::ostream &os);
 
   void GenerateFieldDeclarations(std::ostream &os);
 
@@ -116,11 +132,12 @@ private:
   std::string EnumName(const google::protobuf::EnumDescriptor *desc);
   // If is_ref is true, it changes how the generator treats google.protobuf.Any.
   // For a reference to a google.protobuf.Any, we use an internal
-  // ::phaser::AnyMessage type.
+  // ::sato::AnyMessage type.
   std::string MessageName(const google::protobuf::Descriptor *desc,
                           bool is_ref = false);
   std::string FieldCFieldType(const google::protobuf::FieldDescriptor *field);
   std::string FieldCType(const google::protobuf::FieldDescriptor *field);
+  std::string FieldROSType(const google::protobuf::FieldDescriptor *field);
   std::string
   FieldRepeatedCType(const google::protobuf::FieldDescriptor *field);
   std::string FieldUnionCType(const google::protobuf::FieldDescriptor *field);
@@ -141,4 +158,4 @@ private:
   std::string package_name_;
 };
 
-} // namespace phaser
+} // namespace sato

@@ -7,10 +7,23 @@ cc_test(
     ],
     deps = [
         "//sato/testdata:test_message_cc_proto",
-        "//sato/testdata:test_message_phaser",
+        "//sato/testdata:test_message_sato",
         "@com_google_absl//absl/strings:str_format",
-        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
         "@toolbelt//toolbelt",
     ],
 )
 
+cc_test(
+    name = "sato_basic_test",
+    srcs = [
+        "sato_basic_test.cc",
+    ],
+    deps = [
+        "//sato/testdata:test_message_cc_proto",
+        "//sato/testdata:test_message_sato",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_googletest//:gtest_main",
+        "@toolbelt//toolbelt",
+    ],
+)

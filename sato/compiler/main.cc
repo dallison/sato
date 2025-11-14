@@ -8,6 +8,6 @@
 
 
 int main(int argc, char *argv[]) {
-  phaser::CodeGenerator generator;
+  sato::CodeGenerator generator;
   return google::protobuf::compiler::PluginMain(argc, argv, &generator);
 }

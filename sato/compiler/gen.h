@@ -16,8 +16,9 @@
 #include <iostream>
 #include <vector>
 #include <memory>
+#include <filesystem>
 
-namespace phaser {
+namespace sato {
 
 class CodeGenerator : public google::protobuf::compiler::CodeGenerator {
 public:
@@ -40,8 +41,10 @@ class Generator {
 public:
   Generator(const google::protobuf::FileDescriptor *file, const std::string& ns, const std::string& pn, const std::string& tn);
 
+  void Compile();
   void GenerateHeaders(std::ostream& os);
   void GenerateSources(std::ostream& os);
+  void GenerateROSMessages(std::ostream& os);
 
 private:
   void OpenNamespace(std::ostream& os);
@@ -55,4 +58,4 @@ private:
   const std::string& target_name_;
 };
 
-} // namespace phaser
+} // namespace sato

@@ -12,7 +12,7 @@
 #include <memory>
 #include <vector>
 
-namespace phaser {
+namespace sato {
 
 class EnumGenerator {
 public:
@@ -26,4 +26,4 @@ private:
   std::vector<std::unique_ptr<EnumGenerator>> nested_enum_gens_;
 };
 
-} // namespace phaser
+} // namespace sato

@@ -6,8 +6,6 @@
 #include "absl/strings/str_format.h"
 #include "sato/testdata/TestMessage.pb.h"
 #include "sato/testdata/TestMessage.sato.h"
-#include "toolbelt/hexdump.h"
-#include "toolbelt/payload_buffer.h"
 #include <gtest/gtest.h>
 #include <sstream>
 
