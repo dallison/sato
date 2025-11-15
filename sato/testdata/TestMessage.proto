@@ -9,28 +9,28 @@ package foo.bar;
 //   BAR = 0xad;
 // }
 
-// message InnerMessage {
-//   string str = 10;
-//   sfixed64 f = 20;
-//   EnumTest e = 30;
-//   repeated EnumTest ev = 40;
-//   oneof uv {
-//     uint32 uva = 50;
-//     EnumTest uvb = 60;
-//   }
-// }
+message InnerMessage {
+  string str = 10;
+  sfixed64 f = 20;
+  // EnumTest e = 30;
+  // repeated EnumTest ev = 40;
+  // oneof uv {
+  //   uint32 uva = 50;
+  //   EnumTest uvb = 60;
+  // }
+}
 
 message TestMessage {
   int32 x = 100;
   int64 y = 101;
-  // string s = 102;
-  // InnerMessage m = 103;
+  string s = 102;
+  InnerMessage m = 103;
   // google.protobuf.Any any = 200;
 
   // // Repeated fields.
-  // repeated int32 vi32 = 104;
-  // repeated string vstr = 105;
-  // repeated InnerMessage vm = 106;
+  repeated int32 vi32 = 104;
+  repeated string vstr = 105;
+  repeated InnerMessage vm = 106;
 
   // // Oneof fields.
   // oneof u1 {

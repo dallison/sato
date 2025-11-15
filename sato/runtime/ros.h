@@ -145,7 +145,7 @@ template <typename T> inline absl::Status Read(const ROSBuffer &b, T &v) {
   return absl::OkStatus();
 }
 
-template <> inline absl::Status Write(ROSBuffer &b, const std::string &v) {
+template <> inline absl::Status Write(ROSBuffer &b, const std::string_view &v) {
   if (absl::Status status = b.HasSpaceFor(4 + v.size()); !status.ok()) {
     return status;
   }

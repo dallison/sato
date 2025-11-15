@@ -11,7 +11,7 @@ cc_library(
         "ros.h",
         "runtime.h",
         # "union.h",
-        # "vectors.h",
+        "vectors.h",
         "protobuf.h",
         # "sato_bank.h",
     ],

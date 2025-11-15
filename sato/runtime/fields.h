@@ -126,115 +126,81 @@ public:
 
 private:
  };
+#endif
 
 // String field with an offset inline in the message.
 class StringField : public Field {
 public:
   StringField() = default;
-  explicit StringField(int number)
-      : Field(number) {}
+  explicit StringField(int number) : Field(number) {}
 
-  size_t SerializedSize() const {
-    size_t s = size();
+  size_t SerializedProtoSize() const {
+    size_t s = value_.size();
     return ProtoBuffer::LengthDelimitedSize(Number(), s);
   }
+  size_t SerializedROSSize() const { return 4 + value_.size(); }
 
-  absl::Status Serialize(ProtoBuffer &buffer) const {
-    size_t s = size();
-    return buffer.ProtoBuffer::SerializeLengthDelimited(Number(), data(), s);
+  absl::Status WriteProto(ProtoBuffer &buffer) const {
+    size_t s = value_.size();
+    return buffer.ProtoBuffer::SerializeLengthDelimited(Number(), value_.data(),
+                                                        s);
   }
+  absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, value_); }
 
-  absl::Status Deserialize(ProtoBuffer &buffer) {
+  absl::Status ParseProto(ProtoBuffer &buffer) {
     absl::StatusOr<std::string_view> s = buffer.DeserializeString();
     if (!s.ok()) {
       return s.status();
     }
-    ::toolbelt::PayloadBuffer::SetString(
-        GetBufferAddr(), *s, GetMessageBinaryStart() + relative_binary_offset_);
+    value_ = *s;
+    present_ = true;
     return absl::OkStatus();
   }
 
+  absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, value_); }
+
 private:
-  template <int N> friend class StringArrayField;
+  std::string_view value_ = {}; // No copy made for this.
 };
 
-
-template <typename MessageType> class IndirectMessageField : public Field {
+template <typename MessageType> class MessageField : public Field {
 public:
-  IndirectMessageField() = default;
-  explicit IndirectMessageField(
-                                int number)
-      : Field(number)
-        msg_(InternalDefault{}) {}
-
-  const MessageType &Msg() const { return msg_; }
-  MessageType &MutableMsg() { return msg_; }
-
-
-  size_t SerializedSize() const {
-    int32_t offset = FindFieldOffset(source_offset_);
-    if (offset < 0) {
-      return 0;
-    }
-    ::toolbelt::BufferOffset *addr = GetIndirectAddress(offset);
-    if (*addr != 0) {
-      // Load up the message if it's already been allocated.
-      msg_.runtime = GetRuntime();
-      msg_.absolute_binary_offset = *addr;
-    }
-    return ProtoBuffer::LengthDelimitedSize(Number(), msg_.SerializedSize());
+  MessageField() = default;
+  explicit MessageField(int number) : Field(number) {}
+  
+  size_t SerializedProtoSize() const {
+    return ProtoBuffer::LengthDelimitedSize(Number(),
+                                            msg_.SerializedProtoSize());
   }
 
-  absl::Status Serialize(ProtoBuffer &buffer) const {
-    int32_t offset = FindFieldOffset(source_offset_);
-    if (offset < 0) {
-      return absl::OkStatus();
-    }
-    ::toolbelt::BufferOffset *addr = GetIndirectAddress(offset);
-    if (*addr != 0) {
-      // Load up the message if it's already been allocated.
-      msg_.runtime = GetRuntime();
-      msg_.absolute_binary_offset = *addr;
-    }
+  size_t SerializedROSSize() const { return msg_.SerializedROSSize(); }
 
-    size_t size = msg_.SerializedSize();
+  absl::Status WriteProto(ProtoBuffer &buffer) const {
+    size_t size = msg_.SerializedProtoSize();
     if (absl::Status status =
             buffer.SerializeLengthDelimitedHeader(Number(), size);
         !status.ok()) {
       return status;
     }
 
-    return msg_.Serialize(buffer);
+    return msg_.WriteProto(buffer);
   }
 
-  absl::Status Deserialize(ProtoBuffer &buffer) {
+  absl::Status WriteROS(ROSBuffer &buffer) { return msg_.WriteROS(buffer); }
+
+  absl::Status ParseProto(ProtoBuffer &buffer) {
     absl::StatusOr<absl::Span<char>> s = buffer.DeserializeLengthDelimited();
     if (!s.ok()) {
       return s.status();
     }
-    // Allocate a new message.
-    void *msg_addr = ::toolbelt::PayloadBuffer::Allocate(
-        GetBufferAddr(), MessageType::BinarySize(), 8);
-    ::toolbelt::BufferOffset msg_offset = GetRuntime()->ToOffset(msg_addr);
-    // Assign to the message.
-    msg_.runtime = GetRuntime();
-    msg_.absolute_binary_offset = msg_offset;
-
-    // Buffer might have moved, get address of indirect again.
-    ::toolbelt::BufferOffset *addr =
-        GetIndirectAddress(relative_binary_offset_);
-    *addr = msg_offset; // Put message field offset into message.
-
-    // Install the metadata into the binary message.
-    msg_.template InstallMetadata<MessageType>();
-
     ProtoBuffer sub_buffer(s.value());
-    return msg_.Deserialize(sub_buffer);
+    return msg_.ParseProto(sub_buffer);
   }
 
+  absl::Status ParseROS(ROSBuffer &buffer) { return msg_.ParseROS(buffer); }
+
 protected:
-  mutable MessageType msg_;
+  MessageType msg_;
 };
-#endif
 
 } // namespace sato

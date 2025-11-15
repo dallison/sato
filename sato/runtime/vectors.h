@@ -9,10 +9,8 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "sato/runtime/iterators.h"
-#include "sato/runtime/message.h"
 #include "sato/runtime/protobuf.h"
-#include "toolbelt/payload_buffer.h"
+#include "sato/runtime/ros.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string>
@@ -22,7 +20,7 @@
 namespace sato {
 
 class ProtoBuffer;
-
+class ROSBuffer;
 
 // This is a variable length vector of T.  It looks like a std::vector<T>.
 // The binary message contains a toolbelt::VectorHeader at the binary offset.
@@ -32,13 +30,10 @@ template <typename T, bool FixedSize = false, bool Signed = false,
 class PrimitiveVectorField : public Field {
 public:
   PrimitiveVectorField() = default;
-  explicit PrimitiveVectorField(
-                                int number)
-      : Field(number) {}
+  explicit PrimitiveVectorField(int number) : Field(number) {}
 
-
-  size_t SerializedSize() const {
-    size_t sz = size();
+  size_t SerializedProtoSize() const {
+    size_t sz = values_.size();
     if (sz == 0) {
       return 0;
     }
@@ -49,12 +44,8 @@ public:
       if constexpr (FixedSize) {
         return ProtoBuffer::LengthDelimitedSize(Number(), sz * sizeof(T));
       } else {
-        T *base = GetRuntime()->template ToAddress<T>(BaseOffset());
-        if (base == nullptr) {
-          return 0;
-        }
         for (size_t i = 0; i < sz; i++) {
-          length += ProtoBuffer::VarintSize<T, Signed>(base[i]);
+          length += ProtoBuffer::VarintSize<T, Signed>(values_[i]);
         }
         return ProtoBuffer::LengthDelimitedSize(Number(), length);
       }
@@ -67,38 +58,32 @@ public:
                                            ProtoBuffer::FixedWireType<T>()) +
                       sizeof(T));
     } else {
-      T *base = GetRuntime()->template ToAddress<T>(BaseOffset());
-      if (base == nullptr) {
-        return 0;
-      }
       for (size_t i = 0; i < sz; i++) {
         length += ProtoBuffer::TagSize(Number(), WireType::kVarint) +
-                  ProtoBuffer::VarintSize<T, Signed>(base[i]);
+                  ProtoBuffer::VarintSize<T, Signed>(values_[i]);
       }
     }
 
     return ProtoBuffer::LengthDelimitedSize(Number(), length);
   }
+  size_t SerializedROSSize() const { return 4 + values_.size() * sizeof(T); }
 
-  absl::Status Serialize(ProtoBuffer &buffer) const {
-    size_t sz = size();
+  absl::Status WriteProto(ProtoBuffer &buffer) const {
+    size_t sz = values_.size();
     if (sz == 0) {
       return absl::OkStatus();
     }
 
-    T *base = GetRuntime()->template ToAddress<T>(BaseOffset());
-    if (base == nullptr) {
-      return absl::OkStatus();
-    }
     // Packed is default in proto3 but optional in proto2.
     if constexpr (Packed) {
       if constexpr (FixedSize) {
         return buffer.SerializeLengthDelimited(
-            Number(), reinterpret_cast<const char *>(base), sz * sizeof(T));
+            Number(), reinterpret_cast<const char *>(values_.data()),
+            sz * sizeof(T));
       } else {
         size_t length = 0;
         for (size_t i = 0; i < sz; i++) {
-          length += ProtoBuffer::VarintSize<T, Signed>(base[i]);
+          length += ProtoBuffer::VarintSize<T, Signed>(values_[i]);
         }
 
         if (absl::Status status =
@@ -109,7 +94,7 @@ public:
 
         for (size_t i = 0; i < sz; i++) {
           if (absl::Status status =
-                  buffer.SerializeRawVarint<T, Signed>(base[i]);
+                  buffer.SerializeRawVarint<T, Signed>(values_[i]);
               !status.ok()) {
             return status;
           }
@@ -122,7 +107,8 @@ public:
     // tag.
     if constexpr (FixedSize) {
       for (size_t i = 0; i < sz; i++) {
-        if (absl::Status status = buffer.SerializeFixed<T>(Number(), base[i]);
+        if (absl::Status status =
+                buffer.SerializeFixed<T>(Number(), values_[i]);
             !status.ok()) {
           return status;
         }
@@ -130,7 +116,7 @@ public:
     } else {
       for (size_t i = 0; i < sz; i++) {
         if (absl::Status status =
-                buffer.SerializeVarint<T, Signed>(Number(), base[i]);
+                buffer.SerializeVarint<T, Signed>(Number(), values_[i]);
             !status.ok()) {
           return status;
         }
@@ -140,7 +126,9 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status Deserialize(ProtoBuffer &buffer) {
+  absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, values_); }
+
+  absl::Status ParseProto(ProtoBuffer &buffer) {
     if constexpr (Packed) {
       absl::StatusOr<absl::Span<char>> data =
           buffer.DeserializeLengthDelimited();
@@ -148,9 +136,8 @@ public:
         return data.status();
       }
       if constexpr (FixedSize) {
-        resize(data->size() / sizeof(T));
-        T *base = GetRuntime()->template ToAddress<T>(BaseOffset());
-        memcpy(base, data->data(), data->size());
+        values_.resize(data->size() / sizeof(T));
+        memcpy(values_.data(), data->data(), data->size());
         return absl::OkStatus();
       } else {
         ProtoBuffer sub_buffer(*data);
@@ -159,7 +146,7 @@ public:
           if (!v.ok()) {
             return v.status();
           }
-          push_back(*v);
+          values_.push_back(*v);
         }
       }
     } else {
@@ -168,23 +155,25 @@ public:
         if (!v.ok()) {
           return v.status();
         }
-        push_back(*v);
+        values_.push_back(*v);
       } else {
         absl::StatusOr<T> v = buffer.DeserializeVarint<T, Signed>();
         if (!v.ok()) {
           return v.status();
         }
-        push_back(*v);
+        values_.push_back(*v);
       }
     }
     return absl::OkStatus();
   }
 
+  absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, values_); }
+
 private:
-  friend FieldIterator<PrimitiveVectorField, T>;
-  friend FieldIterator<PrimitiveVectorField, const T>;
+  std::vector<T> values_;
 };
 
+#if 0
 template <typename Enum = int, bool Packed = true>
 class EnumVectorField : public Field {
 public:
@@ -300,83 +289,85 @@ public:
 
 private:
 };
+#endif
 
 template <typename T> class MessageVectorField : public Field {
 public:
   MessageVectorField() = default;
-  explicit MessageVectorField(
-                              int number)
-      : Field(number){}
+  explicit MessageVectorField(int number) : Field(number) {}
 
-
-  size_t SerializedSize() const {
-    Populate();
+  size_t SerializedProtoSize() const {
     size_t length = 0;
-    for (size_t i = 0; i < size(); i++) {
+    for (size_t i = 0; i < msgs_.size(); i++) {
       length += sato::ProtoBuffer::LengthDelimitedSize(
-          Number(), msgs_[i].SerializedSize());
+          Number(), msgs_[i].SerializedProtoSize());
     }
     return length;
   }
+  size_t SerializedROSSize() const { return 4 + msgs_.size() * sizeof(T); }
 
-  absl::Status Serialize(ProtoBuffer &buffer) const {
-    Populate();
-    size_t sz = size();
+  absl::Status WriteProto(ProtoBuffer &buffer) const {
+    size_t sz = msgs_.size();
     if (sz == 0) {
       return absl::OkStatus();
     }
 
     for (const auto &msg : msgs_) {
       if (absl::Status status = buffer.SerializeLengthDelimitedHeader(
-              Number(), msg.SerializedSize());
+              Number(), msg.SerializedProtoSize());
           !status.ok()) {
         return status;
       }
-      if (absl::Status status = msg.Serialize(buffer); !status.ok()) {
+      if (absl::Status status = msg.WriteProto(buffer); !status.ok()) {
         return status;
       }
     }
     return absl::OkStatus();
   }
+  absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, msgs_); }
 
-  absl::Status Deserialize(ProtoBuffer &buffer) {
+  absl::Status ParseProto(ProtoBuffer &buffer) {
     absl::StatusOr<absl::Span<char>> v = buffer.DeserializeLengthDelimited();
     if (!v.ok()) {
       return v.status();
     }
     ProtoBuffer msg_buffer(*v);
-    T *msg = Add();
-    if (absl::Status status = msg->Deserialize(msg_buffer); !status.ok()) {
+    msgs_.push_back(MessageField<T>());
+    if (absl::Status status = msgs_.back().ParseProto(msg_buffer); !status.ok()) {
       return status;
     }
     return absl::OkStatus();
   }
+  absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, msgs_); }
 
 private:
-  mutable std::vector<MessageObject<T>> msgs_;
-  MessageObject<T> empty_;
+  std::vector<MessageField<T>> msgs_;
 };
 
 class StringVectorField : public Field {
 public:
   StringVectorField() = default;
-  explicit StringVectorField(
-                             int number)
-      : Field(number) {}
+  explicit StringVectorField(int number) : Field(number) {}
 
-  size_t SerializedSize() const {
-    Populate();
+  size_t SerializedProtoSize() const {
     size_t length = 0;
-    for (size_t i = 0; i < size(); i++) {
-      length += sato::ProtoBuffer::LengthDelimitedSize(
-          Number(), strings_[i].SerializedSize());
+    for (size_t i = 0; i < strings_.size(); i++) {
+      length +=
+          sato::ProtoBuffer::LengthDelimitedSize(Number(), strings_[i].size());
     }
     return length;
   }
 
-  absl::Status Serialize(ProtoBuffer &buffer) const {
-    Populate();
-    size_t sz = size();
+  size_t SerializedROSSize() const {
+    size_t length = 0;
+    for (size_t i = 0; i < strings_.size(); i++) {
+      length += 4 + strings_[i].size();
+    }
+    return 4 + length;
+  }
+
+  absl::Status WriteProto(ProtoBuffer &buffer) const {
+    size_t sz = strings_.size();
     if (sz == 0) {
       return absl::OkStatus();
     }
@@ -390,20 +381,20 @@ public:
     }
     return absl::OkStatus();
   }
+  absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, strings_); }
 
-  absl::Status Deserialize(ProtoBuffer &buffer) {
+  absl::Status ParseProto(ProtoBuffer &buffer) {
     absl::StatusOr<std::string_view> v = buffer.DeserializeString();
     if (!v.ok()) {
       return v.status();
     }
-    push_back(*v);
+    strings_.push_back(*v);
     return absl::OkStatus();
   }
+  absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, strings_); }
 
 private:
-  mutable std::vector<NonEmbeddedStringField> strings_;
-  NonEmbeddedStringField empty_;
+  std::vector<std::string_view> strings_;
 };
-
 
 } // namespace sato

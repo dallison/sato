@@ -202,8 +202,7 @@ std::string MessageGenerator::FieldCFieldType(
     if (IsAny(field)) {
       return "AnyField";
     }
-    return "IndirectMessageField<" + MessageName(field->message_type(), true) +
-           ">";
+    return "MessageField<" + MessageName(field->message_type(), true) + ">";
 
   case google::protobuf::FieldDescriptor::TYPE_GROUP:
     std::cerr << "Groups are not supported\n";
@@ -894,11 +893,13 @@ void MessageGenerator::GenerateDeserializer(std::ostream &os, bool decl) {
     os << "  absl::Status ProtoToROS(::sato::ProtoBuffer &buffer, "
           "::sato::ROSBuffer "
           "&ros_buffer);\n";
+    os << "  absl::Status ParseProto(::sato::ProtoBuffer &buffer);\n";
+    os << "  absl::Status WriteROS(::sato::ROSBuffer &buffer);\n";
     return;
   }
+
   os << "absl::Status " << MessageName(message_)
-     << "::ProtoToROS(::sato::ProtoBuffer &buffer, ::sato::ROSBuffer "
-        "&ros_buffer) {";
+     << "::ParseProto(::sato::ProtoBuffer &buffer) {\n";
   os << R"XXX(
   while (!buffer.Eof()) {
     absl::StatusOr<uint32_t> tag =
@@ -932,12 +933,16 @@ void MessageGenerator::GenerateDeserializer(std::ostream &os, bool decl) {
       }
     }
   }
+  return absl::OkStatus();
+}
+  
 )XXX";
 
-  // Now write each field to the ROS buffer.
+  os << "absl::Status " << MessageName(message_)
+     << "::WriteROS(::sato::ROSBuffer &buffer) {\n";
   for (auto &field : fields_) {
     os << "  if (absl::Status status = " << field->member_name
-       << ".WriteROS(ros_buffer); !status.ok()) return status;\n";
+       << ".WriteROS(buffer); !status.ok()) return status;\n";
   }
   for (auto &[oneof, u] : unions_) {
     os << "  switch (" << u->member_name << ".Discriminator()) {\n";
@@ -946,11 +951,21 @@ void MessageGenerator::GenerateDeserializer(std::ostream &os, bool decl) {
       os << "  case " << field->field->number() << ":\n";
       os << "    if (absl::Status status = " << u->member_name << ".WriteROS<"
          << i << ">(" << field->field->number()
-         << ", ros_buffer); !status.ok()) return status;\n";
+         << ", buffer); !status.ok()) return status;\n";
       os << "    break;\n";
     }
     os << "  }\n";
   }
+  os << "  return absl::OkStatus();\n";
+  os << "}\n\n";
+
+  os << "absl::Status " << MessageName(message_)
+     << "::ProtoToROS(::sato::ProtoBuffer &buffer, ::sato::ROSBuffer "
+        "&ros_buffer) {";
+  os << "  if (absl::Status status = ParseProto(buffer); !status.ok()) return "
+        "status;\n";
+  os << "  if (absl::Status status = WriteROS(ros_buffer); !status.ok()) "
+        "return status;\n";
   os << "  return absl::OkStatus();\n";
   os << "}\n\n";
 }
