@@ -3,11 +3,11 @@ syntax = "proto3";
 package foo.bar;
 // import "google/protobuf/any.proto";
 
-// enum EnumTest {
-//   UNSET = 0; 
-//   FOO = 0xda; 
-//   BAR = 0xad;
-// }
+enum EnumTest {
+  UNSET = 0; 
+  FOO = 0xda; 
+  BAR = 0xad;
+}
 
 message InnerMessage {
   string str = 10;
@@ -32,25 +32,25 @@ message TestMessage {
   repeated string vstr = 105;
   repeated InnerMessage vm = 106;
 
-  // // Oneof fields.
-  // oneof u1 {
-  //   uint32 u1a = 107;
-  //   fixed64 u1b = 108;
-  // }
+  // Oneof fields.
+  oneof u1 {
+    uint32 u1a = 107;
+    fixed64 u1b = 108;
+  }
 
-  // oneof u2 {
-  //   int64 u2a = 109;
-  //   string u2b = 110;
-  // }
+  oneof u2 {
+    int64 u2a = 109;
+    string u2b = 110;
+  }
 
-  // oneof u3 {
-  //   int64 u3a = 111;
-  //   InnerMessage u3b = 112;
-  // }
-  // bytes buffer = 113;
-  // EnumTest e = 114;
-  // float fl = 115;
-  // double db = 116;
+  oneof u3 {
+    int64 u3a = 111;
+    InnerMessage u3b = 112;
+  }
+  bytes buffer = 113;
+  EnumTest e = 114;
+  float fl = 115;
+  double db = 116;
 
-  // map<string, int32> values = 117;
+  map<string, int32> values = 117;
 }

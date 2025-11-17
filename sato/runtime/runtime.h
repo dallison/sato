@@ -8,7 +8,7 @@
 // #include "sato/runtime/any.h"
 #include "sato/runtime/fields.h"
 // #include "sato/runtime/sato_bank.h"
-// #include "sato/runtime/union.h"
+#include "sato/runtime/union.h"
 #include "sato/runtime/vectors.h"
 #include "toolbelt/hexdump.h"
 

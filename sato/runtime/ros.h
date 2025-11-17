@@ -157,7 +157,7 @@ template <> inline absl::Status Write(ROSBuffer &b, const std::string_view &v) {
   return absl::OkStatus();
 }
 
-template <> inline absl::Status Read(const ROSBuffer &b, std::string &v) {
+template <> inline absl::Status Read(const ROSBuffer &b, std::string_view &v) {
   if (absl::Status status = b.Check(4); !status.ok()) {
     return status;
   }
@@ -166,9 +166,9 @@ template <> inline absl::Status Read(const ROSBuffer &b, std::string &v) {
   if (absl::Status status = b.Check(size_t(size)); !status.ok()) {
     return status;
   }
-  v.resize(size);
-  memcpy(v.data(), b.Addr() + 4, size);
-  b.Addr() += 4 + v.size();
+  v = std::string_view(b.Addr() + 4, size);
+  std::cerr << "Read string: " << v << std::endl;
+  b.Addr() += 4 + size;
   return absl::OkStatus();
 }
 

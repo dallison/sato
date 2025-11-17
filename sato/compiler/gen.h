@@ -17,7 +17,7 @@
 #include <vector>
 #include <memory>
 #include <filesystem>
-
+#include "zip.h"
 namespace sato {
 
 class CodeGenerator : public google::protobuf::compiler::CodeGenerator {
@@ -44,7 +44,7 @@ public:
   void Compile();
   void GenerateHeaders(std::ostream& os);
   void GenerateSources(std::ostream& os);
-  void GenerateROSMessages(std::ostream& os);
+  void GenerateROSMessagesZip(std::ostream& os);
 
 private:
   void OpenNamespace(std::ostream& os);

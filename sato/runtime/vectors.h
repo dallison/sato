@@ -167,130 +167,17 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, values_); }
+  absl::Status ParseROS(ROSBuffer &buffer) { 
+    if (absl::Status status = Read(buffer, values_); !status.ok()) {
+      return status;
+    }
+    present_ = values_.size() > 0;
+    return absl::OkStatus();
+  }
 
 private:
   std::vector<T> values_;
 };
-
-#if 0
-template <typename Enum = int, bool Packed = true>
-class EnumVectorField : public Field {
-public:
-  EnumVectorField() = default;
-  explicit EnumVectorField(int number)
-      : Field(number),{}
-
-  using T = typename std::underlying_type<Enum>::type;
-
-  size_t SerializedSize() const {
-    size_t sz = size();
-    if (sz == 0) {
-      return 0;
-    }
-    size_t length = 0;
-
-    // Packed is default in proto3 but optional in proto2.
-    if constexpr (Packed) {
-      T *base = GetRuntime()->template ToAddress<T>(BaseOffset());
-      if (base == nullptr) {
-        return 0;
-      }
-      for (size_t i = 0; i < sz; i++) {
-        length += ProtoBuffer::VarintSize<T, false>(base[i]);
-      }
-      return ProtoBuffer::LengthDelimitedSize(Number(), length);
-    }
-
-    // Not packed, just a sequence of individual fields, all with the same
-    // tag.
-    T *base = GetRuntime()->template ToAddress<T>(BaseOffset());
-    if (base == nullptr) {
-      return 0;
-    }
-    for (size_t i = 0; i < sz; i++) {
-      length += ProtoBuffer::TagSize(Number(), WireType::kVarint) +
-                ProtoBuffer::VarintSize<T, false>(base[i]);
-    }
-
-    return ProtoBuffer::LengthDelimitedSize(Number(), length);
-  }
-
-  absl::Status Serialize(ProtoBuffer &buffer) const {
-    size_t sz = size();
-    if (sz == 0) {
-      return absl::OkStatus();
-    }
-
-    T *base = GetRuntime()->template ToAddress<T>(BaseOffset());
-    if (base == nullptr) {
-      return absl::OkStatus();
-    }
-    // Packed is default in proto3 but optional in proto2.
-    if constexpr (Packed) {
-      size_t length = 0;
-      for (size_t i = 0; i < sz; i++) {
-        length += ProtoBuffer::VarintSize<T, false>(base[i]);
-      }
-
-      if (absl::Status status =
-              buffer.SerializeLengthDelimitedHeader(Number(), length);
-          !status.ok()) {
-        return status;
-      }
-
-      for (size_t i = 0; i < sz; i++) {
-        if (absl::Status status = buffer.SerializeRawVarint<T, false>(base[i]);
-            !status.ok()) {
-          return status;
-        }
-      }
-      return absl::OkStatus();
-    }
-
-    // Not packed, just a sequence of individual fields, all with the same
-    // tag.
-
-    for (size_t i = 0; i < sz; i++) {
-      if (absl::Status status =
-              buffer.SerializeVarint<T, false>(Number(), base[i]);
-          !status.ok()) {
-        return status;
-      }
-    }
-
-    return absl::OkStatus();
-  }
-
-  absl::Status Deserialize(ProtoBuffer &buffer) {
-    if constexpr (Packed) {
-      absl::StatusOr<absl::Span<char>> data =
-          buffer.DeserializeLengthDelimited();
-      if (!data.ok()) {
-        return data.status();
-      }
-      ProtoBuffer sub_buffer(*data);
-      while (!sub_buffer.Eof()) {
-        absl::StatusOr<T> v = sub_buffer.DeserializeVarint<T, false>();
-        if (!v.ok()) {
-          return v.status();
-        }
-        push_back(static_cast<Enum>(*v));
-      }
-    } else {
-      absl::StatusOr<T> v = buffer.DeserializeVarint<T, false>();
-      if (!v.ok()) {
-        return v.status();
-      }
-      push_back(static_cast<Enum>(*v));
-    }
-    return absl::OkStatus();
-  }
-
-private:
-};
-#endif
-
 template <typename T> class MessageVectorField : public Field {
 public:
   MessageVectorField() = default;
@@ -327,18 +214,27 @@ public:
   absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, msgs_); }
 
   absl::Status ParseProto(ProtoBuffer &buffer) {
-    absl::StatusOr<absl::Span<char>> v = buffer.DeserializeLengthDelimited();
-    if (!v.ok()) {
-      return v.status();
-    }
-    ProtoBuffer msg_buffer(*v);
     msgs_.push_back(MessageField<T>());
-    if (absl::Status status = msgs_.back().ParseProto(msg_buffer); !status.ok()) {
+    if (absl::Status status = msgs_.back().ParseProto(buffer); !status.ok()) {
       return status;
     }
     return absl::OkStatus();
   }
-  absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, msgs_); }
+  
+  absl::Status ParseROS(ROSBuffer &buffer) { 
+    int num_msgs = 0;
+    if (absl::Status status = Read(buffer, num_msgs); !status.ok()) {
+      return status;
+    }
+    for (int i = 0; i < num_msgs; i++) {
+      msgs_.push_back(MessageField<T>());
+      if (absl::Status status = msgs_.back().ParseROS(buffer); !status.ok()) {
+        return status;
+      }
+    }
+    present_ = num_msgs > 0;
+    return absl::OkStatus();
+  }
 
 private:
   std::vector<MessageField<T>> msgs_;

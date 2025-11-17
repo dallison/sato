@@ -10,7 +10,7 @@ cc_library(
         "fields.h",
         "ros.h",
         "runtime.h",
-        # "union.h",
+        "union.h",
         "vectors.h",
         "protobuf.h",
         # "sato_bank.h",

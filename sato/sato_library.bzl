@@ -67,7 +67,7 @@ def _sato_aspect_impl(target, _ctx):
     def add_output(base):
         cpp_outputs.append(paths.replace_extension(base, ".sato.cc"))
         cpp_outputs.append(paths.replace_extension(base, ".sato.h"))
-        cpp_outputs.append(paths.replace_extension(base, ".h"))
+        cpp_outputs.append(paths.replace_extension(base, ".zip"))
 
     if ProtoInfo in target:
         transitive_sources = target[ProtoInfo].transitive_sources

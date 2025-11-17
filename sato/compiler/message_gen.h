@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <vector>
+#include "zip.h"
 
 #include "google/protobuf/compiler/code_generator.h"
 #include "google/protobuf/compiler/plugin.h"
@@ -80,7 +81,7 @@ public:
 
   void GenerateHeader(std::ostream &os);
   void GenerateSource(std::ostream &os);
-  void GenerateROSMessage(std::ostream &os);
+  void GenerateROSMessage(zip_t *zip);
 
   void GenerateFieldDeclarations(std::ostream &os);
 
@@ -110,8 +111,8 @@ private:
   void GenerateNestedTypes(std::ostream &os);
   void GenerateFieldNumbers(std::ostream &os);
   void GenerateSerializedSize(std::ostream &os, bool decl);
-  void GenerateSerializer(std::ostream &os, bool decl);
-  void GenerateDeserializer(std::ostream &os, bool decl);
+  void GenerateROSToProto(std::ostream &os, bool decl);
+  void GenerateProtoToROS(std::ostream &os, bool decl);
 
   void GenerateProtobufSerialization(std::ostream &os);
   void GenerateIndent(std::ostream &os);

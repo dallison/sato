@@ -34,20 +34,32 @@ TEST(SatoBasicTest, Basic) {
   inner->set_str("Inner2");
   inner->set_f(888);
 
+  msg.set_e(foo::bar::FOO); 
+
+  msg.set_u1a(0x01020304);
+
+
   std::string serialized;
   msg.SerializeToString(&serialized);
   ASSERT_EQ(1234, msg.x());
   ASSERT_EQ(0, msg.y());
   ASSERT_EQ("hello world", msg.s());
-  std::cerr << "serialized: " << serialized;
-  toolbelt::Hexdump(serialized.data(), serialized.size());
+  toolbelt::Hexdump(serialized.data(), serialized.size(), stderr);
 
   foo::bar::sato::TestMessage t;
   sato::ProtoBuffer buffer(serialized);
   sato::ROSBuffer ros_buffer;
   absl::Status status = t.ProtoToROS(buffer, ros_buffer);
-  std::cerr << "status: " << status;
+  std::cerr << "status: " << status << std::endl;
   ASSERT_TRUE(status.ok());
 
-  toolbelt::Hexdump(ros_buffer.data(), ros_buffer.size());
+  toolbelt::Hexdump(ros_buffer.data(), ros_buffer.size(), stderr);
+
+  sato::ProtoBuffer buffer2;
+  sato::ROSBuffer ros_buffer2(ros_buffer.data(), ros_buffer.size());
+  status = t.ROSToProto(ros_buffer2, buffer2);
+  std::cerr << "status: " << status << std::endl;
+  ASSERT_TRUE(status.ok());
+
+  toolbelt::Hexdump(buffer2.data(), buffer2.size(), stderr);
 }

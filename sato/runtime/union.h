@@ -8,9 +8,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "sato/runtime/iterators.h"
-#include "sato/runtime/message.h"
-#include "toolbelt/payload_buffer.h"
+#include "sato/runtime/fields.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string>
@@ -20,71 +18,10 @@
 
 namespace sato {
 
-class UnionMemberField {
-protected:
-  ::toolbelt::PayloadBuffer *
-  GetBuffer(const std::shared_ptr<MessageRuntime> &runtime) const {
-    return runtime->pb;
-  }
-
-  ::toolbelt::PayloadBuffer **
-  GetBufferAddr(const std::shared_ptr<MessageRuntime> &runtime) const {
-    return &runtime->pb;
-  }
-};
-
+// Primitive union fields are just regular primitive fields.
 #define DEFINE_PRIMITIVE_UNION_FIELD(cname, type)                              \
   template <bool FixedSize = false, bool Signed = false>                       \
-  class Union##cname##Field : public UnionMemberField {                        \
-  public:                                                                      \
-    Union##cname##Field() = default;                                           \
-  
-    size_t SerializedSize(int number,                                          \
-                          const std::shared_ptr<MessageRuntime> &runtime,      \
-                          uint32_t abs_offset) const {                         \
-      if constexpr (FixedSize) {                                               \
-        return ProtoBuffer::TagSize(number,                                    \
-                                    ProtoBuffer::FixedWireType<type>()) +      \
-               sizeof(type);                                                   \
-      } else {                                                                 \
-        return ProtoBuffer::TagSize(number, WireType::kVarint) +               \
-               ProtoBuffer::VarintSize<type, Signed>(                          \
-                   Get(runtime, abs_offset));                                  \
-      }                                                                        \
-    }                                                                          \
-    absl::Status Serialize(int number, ProtoBuffer &buffer,                    \
-                           const std::shared_ptr<MessageRuntime> &runtime,     \
-                           uint32_t abs_offset) const {                        \
-      if constexpr (FixedSize) {                                               \
-        return buffer.SerializeFixed<type>(number, Get(runtime, abs_offset));  \
-      } else {                                                                 \
-        return buffer.SerializeVarint<type, Signed>(number,                    \
-                                                    Get(runtime, abs_offset)); \
-      }                                                                        \
-    }                                                                          \
-    absl::Status Deserialize(ProtoBuffer &buffer,                              \
-                             const std::shared_ptr<MessageRuntime> &runtime,   \
-                             uint32_t abs_offset) {                            \
-      absl::StatusOr<type> v;                                                  \
-      if constexpr (FixedSize) {                                               \
-        v = buffer.DeserializeFixed<type>();                                   \
-      } else {                                                                 \
-        v = buffer.DeserializeVarint<type, Signed>();                          \
-      }                                                                        \
-      if (!v.ok()) {                                                           \
-        return v.status();                                                     \
-      }                                                                        \
-      Set(*v, runtime, abs_offset);                                            \
-      return absl::OkStatus();                                                 \
-    }                                                                          \
-    constexpr WireType GetWireType() {                                         \
-      if constexpr (FixedSize) {                                               \
-        return WireType::kFixed64;                                             \
-      } else {                                                                 \
-        return WireType::kVarint;                                              \
-      }                                                                        \
-    }                                                                          \
-  };
+  using Union##cname##Field = cname##Field<FixedSize, Signed>;
 
 DEFINE_PRIMITIVE_UNION_FIELD(Int32, int32_t)
 DEFINE_PRIMITIVE_UNION_FIELD(Uint32, uint32_t)
@@ -96,194 +33,125 @@ DEFINE_PRIMITIVE_UNION_FIELD(Bool, bool)
 
 #undef DEFINE_PRIMITIVE_UNION_FIELD
 
-template <typename Enum = int>
-class UnionEnumField : public UnionMemberField {
-public:
-  using T = typename std::underlying_type<Enum>::type;
-  UnionEnumField() = default;
-
-  size_t SerializedSize(int number,
-                        const std::shared_ptr<MessageRuntime> &runtime,
-                        uint32_t abs_offset) const {
-    return ProtoBuffer::TagSize(number, WireType::kVarint) +
-           ProtoBuffer::VarintSize<T, false>(
-               GetUnderlying(runtime, abs_offset));
-  }
-
-  absl::Status Serialize(int number, ProtoBuffer &buffer,
-                         const std::shared_ptr<MessageRuntime> &runtime,
-                         uint32_t abs_offset) const {
-    return buffer.SerializeVarint<T, false>(number,
-                                            GetUnderlying(runtime, abs_offset));
-  }
-
-  absl::Status Deserialize(ProtoBuffer &buffer,
-                           const std::shared_ptr<MessageRuntime> &runtime,
-                           uint32_t abs_offset) {
-    absl::StatusOr<T> v = buffer.DeserializeVarint<T, false>();
-    if (!v.ok()) {
-      return v.status();
-    }
-    Set(static_cast<Enum>(*v), runtime, abs_offset);
-    return absl::OkStatus();
-  }
-  constexpr WireType GetWireType() { return WireType::kVarint; }
-};
-
+using UnionStringField = StringField;
 // The union contains an offset to the string data (length and bytes).
-class UnionStringField : public UnionMemberField {
+
+// Messages within unions are fields but they are encoded as an array of
+// messages in ROS format so that they can be omitted if they are not present.
+template <typename MessageType> class UnionMessageField : public Field {
 public:
-  UnionStringField() = default;
+  UnionMessageField() {}
 
-  size_t SerializedSize(int number,
-                        const std::shared_ptr<MessageRuntime> &runtime,
-                        uint32_t abs_offset) const {
-    size_t sz = size(runtime, abs_offset);
-    return ProtoBuffer::TagSize(number, WireType::kLengthDelimited) +
-           ProtoBuffer::VarintSize<int32_t, false>(sz) + sz;
+  size_t SerializedProtoSize() const {
+    return ProtoBuffer::LengthDelimitedSize(Number(),
+                                            msg_.SerializedProtoSize());
   }
 
-  absl::Status Serialize(int number, ProtoBuffer &buffer,
-                         const std::shared_ptr<MessageRuntime> &runtime,
-                         uint32_t abs_offset) const {
-    return buffer.SerializeLengthDelimited(number, data(runtime, abs_offset),
-                                           size(runtime, abs_offset));
+  size_t SerializedROSSize() const { return msg_.SerializedROSSize(); }
+
+  absl::Status WriteProto(ProtoBuffer &buffer) const {
+    return msg_.WriteProto(buffer);
   }
 
-  absl::Status Deserialize(ProtoBuffer &buffer,
-                           const std::shared_ptr<MessageRuntime> &runtime,
-                           uint32_t abs_offset) {
-    absl::StatusOr<std::string_view> v = buffer.DeserializeString();
-    if (!v.ok()) {
-      return v.status();
-    }
-    ::toolbelt::PayloadBuffer::SetString(GetBufferAddr(runtime), *v,
-                                         abs_offset);
-    return absl::OkStatus();
-  }
-
-  constexpr WireType GetWireType() { return WireType::kLengthDelimited; }
-};
-
-template <typename MessageType>
-class UnionMessageField : public UnionMemberField {
-public:
-  UnionMessageField() : msg_(InternalDefault{}) {}
-
-
-  absl::Status SerializeToBuffer(ProtoBuffer &buffer) const {
-    return msg_.SerializeToBuffer(buffer);
-  }
-
-  absl::Status DeserializeFromBuffer(ProtoBuffer &buffer) {
-    return msg_.DeserializeFromBuffer(buffer);
-  }
-
-  size_t SerializedSize(int number) const {
-    return ProtoBuffer::LengthDelimitedSize(
-        number, Get(runtime, abs_offset).SerializedSize());
-  }
-
-  absl::Status Serialize(int number, ProtoBuffer &buffer) const {
-    if (absl::Status status = buffer.SerializeLengthDelimitedHeader(
-            number, Get(runtime, abs_offset).SerializedSize());
-        !status.ok()) {
+  absl::Status WriteROS(ROSBuffer &buffer) {
+    int array_size = msg_.IsPresent() ? 1 : 0;
+    if (absl::Status status = Write(buffer, array_size); !status.ok()) {
       return status;
     }
-    return Get(runtime, abs_offset).Serialize(buffer);
+    if (array_size > 0) {
+      return msg_.WriteROS(buffer);
+    }
+    return absl::OkStatus();
   }
 
-  absl::Status Deserialize(ProtoBuffer &buffer) {
-    absl::StatusOr<absl::Span<char>> s = buffer.DeserializeLengthDelimited();
-    if (!s.ok()) {
-      return s.status();
-    }
-    void *msg_addr = ::toolbelt::PayloadBuffer::Allocate(
-        GetBufferAddr(runtime), MessageType::BinarySize(), 8);
-    ::toolbelt::BufferOffset msg_offset =
-        GetBuffer(runtime)->ToOffset(msg_addr);
-    // Assign to the message.
-    msg_.runtime = runtime;
-    msg_.absolute_binary_offset = msg_offset;
-    msg_.template InstallMetadata<MessageType>();
+  absl::Status ParseProto(ProtoBuffer &buffer) {
+    return msg_.ParseProto(buffer);
+  }
 
-    // Buffer might have moved, get address of indirect again.
-    ::toolbelt::BufferOffset *addr = GetIndirectAddress(runtime, abs_offset);
-    if (addr == nullptr) {
-      return absl::OkStatus();
+  absl::Status ParseROS(ROSBuffer &buffer) {
+    int array_size = 0;
+    if (absl::Status status = Read(buffer, array_size); !status.ok()) {
+      return status;
     }
-    *addr = msg_offset; // Put message field offset into message.
-    ProtoBuffer sub_buffer(s.value());
-    return msg_.Deserialize(sub_buffer);
+    if (array_size > 0) {
+      return msg_.ParseROS(buffer);
+    }
+    return absl::OkStatus();
   }
 
 private:
-  mutable MessageType msg_;
+  MessageField<MessageType> msg_;
 }; // namespace sato
 
-// All member of the tuple must be union fields.  These are stored in a
-// std::tuple which does not store them inline so they need to contain the
-// buffer shared pointer and the offset of the message binary data.
 template <typename... T> class UnionField : public Field {
 public:
   UnionField() = default;
-  UnionField(
-             int number, std::vector<int> field_numbers)
-      : Field(number),
-        field_numbers_(field_numbers) {}
+  UnionField(std::vector<int> field_numbers)
+      : Field(0), field_numbers_(field_numbers) {}
 
   bool Is(int number) const { return Discriminator() == number; }
 
-  int32_t Discriminator() const {
-    return 0;     // TODO: implementq
+  int32_t Discriminator() const { return discriminator_; }
+
+  template <int Id> size_t SerializedProtoSize() const {
+    return std::get<Id>(value_).SerializedProtoSize();
   }
 
-
-  template <int Id> size_t SerializedSize(int discriminator) const {
-    int32_t relative_offset = Message::GetMessage(this, source_offset_)
-                                  ->FindFieldOffset(field_numbers_[Id]);
-    if (relative_offset < 0) { // Field not present.
-      return 0;
-    }
-    return std::get<Id>(value_).SerializedSize(discriminator, GetRuntime(),
-                                               GetMessageBinaryStart() +
-                                                   relative_offset + 4);
+  size_t SerializedROSSize() const {
+    size_t size = 4;  // 4 bytes for the discriminator
+    // Iterate through all tuple elements at runtime and call SerializedROSSize on each
+    std::apply([&](auto &... args) {
+      size += (args.SerializedROSSize() + ... + 0);
+    }, value_);
+    return size;
   }
 
-  template <int Id>
-  absl::Status Serialize(int discriminator, ProtoBuffer &buffer) const {
-    int32_t relative_offset = Message::GetMessage(this, source_offset_)
-                                  ->FindFieldOffset(field_numbers_[Id]);
-    if (relative_offset < 0) { // Field not present.
-      return absl::OkStatus();
-    }
-    return std::get<Id>(value_).Serialize(discriminator, buffer, GetRuntime(),
-                                          GetMessageBinaryStart() +
-                                              relative_offset + 4);
+  absl::Status WriteDiscriminator(ROSBuffer &buffer) const {
+    return Write(buffer, Discriminator());
   }
 
   template <int Id>
-  absl::Status Deserialize(int discriminator, ProtoBuffer &buffer) {
-    int32_t relative_offset = Message::GetMessage(this, source_offset_)
-                                  ->FindFieldOffset(field_numbers_[Id]);
-    if (relative_offset < 0) { // Field not present.
-      return absl::OkStatus();
-    }
-    if (absl::Status status = std::get<Id>(value_).Deserialize(
-            buffer, GetRuntime(),
-            GetMessageBinaryStart() + relative_offset + 4);
+  absl::Status WriteProto(ProtoBuffer &buffer) const {
+    return std::get<Id>(value_).WriteProto(buffer);
+  }
+
+  template <int Id> absl::Status ParseProto(ProtoBuffer &buffer) {
+    if (absl::Status status = std::get<Id>(value_).ParseProto(buffer);
         !status.ok()) {
       return status;
     }
-    // Set the discriminator.
-    int32_t *discrim = GetRuntime()->template ToAddress<int32_t>(
-        GetMessageBinaryStart() + relative_binary_offset_);
-    *discrim = field_numbers_[Id];
+    discriminator_ = field_numbers_[Id];
     return absl::OkStatus();
+  }
+
+  absl::Status WriteROS(ROSBuffer &buffer) {
+    // Write the discrimintor and then the contents of the value tuple
+    if (absl::Status status = Write(buffer, Discriminator()); !status.ok()) {
+      return status;
+    }
+    // Iterate through all tuple elements at runtime and call WriteROS on each
+    absl::Status result = absl::OkStatus();
+    std::apply([&](auto &... args) {
+      ((result = args.WriteROS(buffer), result.ok()) && ...);
+    }, value_);
+    return result;
+  }
+
+  absl::Status ParseROS(ROSBuffer &buffer) {
+    if (absl::Status status = Read(buffer, discriminator_); !status.ok()) {
+      return status;
+    }
+    // Iterate through all tuple elements at runtime and call ParseROS on each
+    absl::Status result = absl::OkStatus();
+    std::apply([&](auto &... args) {
+      ((result = args.ParseROS(buffer), result.ok()) && ...);
+    }, value_);
+    return result;
   }
 
 private:
   std::vector<int> field_numbers_; // field number for each tuple type
-  mutable std::tuple<T...> value_;
+  int discriminator_;
+  std::tuple<T...> value_;
 };
 } // namespace sato

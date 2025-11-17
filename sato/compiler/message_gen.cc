@@ -7,7 +7,13 @@
 #include "absl/strings/str_replace.h"
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
+#include <cstring>
 #include <ctype.h>
+#include <fstream>
+#include <sstream>
+#include <unistd.h>
+#include <vector>
 
 namespace sato {
 
@@ -194,7 +200,8 @@ std::string MessageGenerator::FieldCFieldType(
   case google::protobuf::FieldDescriptor::TYPE_BOOL:
     return "BoolField<false, false>";
   case google::protobuf::FieldDescriptor::TYPE_ENUM:
-    return "EnumField<" + EnumName(field->enum_type()) + ">";
+    return "Uint32Field<false, false>"; // We use a uint32_t to store the enum
+                                        // value.
   case google::protobuf::FieldDescriptor::TYPE_STRING:
   case google::protobuf::FieldDescriptor::TYPE_BYTES:
     return "StringField";
@@ -280,7 +287,7 @@ MessageGenerator::FieldCType(const google::protobuf::FieldDescriptor *field) {
   case google::protobuf::FieldDescriptor::TYPE_BOOL:
     return "bool";
   case google::protobuf::FieldDescriptor::TYPE_ENUM:
-    return EnumName(field->enum_type());
+    return "uint32_t";
   case google::protobuf::FieldDescriptor::TYPE_STRING:
   case google::protobuf::FieldDescriptor::TYPE_BYTES:
     return "std::string_view";
@@ -361,7 +368,7 @@ std::string MessageGenerator::FieldRepeatedCType(
   case google::protobuf::FieldDescriptor::TYPE_BOOL:
     return "PrimitiveVectorField<bool, false, false" + packed;
   case google::protobuf::FieldDescriptor::TYPE_ENUM:
-    return "EnumVectorField<" + EnumName(field->enum_type()) + packed;
+    return "PrimitiveVectorField<uint32_t, false, false" + packed;
   case google::protobuf::FieldDescriptor::TYPE_STRING:
   case google::protobuf::FieldDescriptor::TYPE_BYTES:
     return "StringVectorField";
@@ -405,7 +412,7 @@ std::string MessageGenerator::FieldUnionCType(
   case google::protobuf::FieldDescriptor::TYPE_BOOL:
     return "UnionBoolField<false, false>";
   case google::protobuf::FieldDescriptor::TYPE_ENUM:
-    return "UnionEnumField<" + EnumName(field->enum_type()) + ">";
+    return "UnionUint32Field<false, false>";
   case google::protobuf::FieldDescriptor::TYPE_STRING:
   case google::protobuf::FieldDescriptor::TYPE_BYTES:
     return "UnionStringField";
@@ -585,15 +592,50 @@ void MessageGenerator::FinalizeOffsetsAndSizes() {
   binary_size_ = size;
 }
 
-void MessageGenerator::GenerateROSMessage(std::ostream &os) {
+void MessageGenerator::GenerateROSMessage(zip_t *zip) {
   for (const auto &nested : nested_message_gens_) {
-    nested->GenerateROSMessage(os);
+    nested->GenerateROSMessage(zip);
   }
-  os << "struct " << MessageName(message_) << " {\n";
+
+  // Write the message to a stringstream
+  std::stringstream ss;
   for (auto &field : fields_) {
-    os << field->c_type << " " << field->ros_member_name << ";\n";
+    ss << field->ros_type << " " << field->ros_member_name << "\n";
   }
-  os << "};\n";
+
+  // Extract the string from the stringstream
+  std::string content = ss.str();
+
+  // Allocate buffer on heap and copy content so libzip can take ownership
+  // This ensures the data persists until libzip writes it to the zip file
+  zip_uint8_t *buffer = nullptr;
+  zip_uint64_t buffer_size = content.size();
+  if (buffer_size > 0) {
+    buffer = static_cast<zip_uint8_t *>(malloc(buffer_size));
+    if (buffer == nullptr) {
+      std::cerr << "Failed to allocate buffer for zip source\n";
+      exit(1);
+    }
+    std::memcpy(buffer, content.data(), buffer_size);
+  }
+
+  // Add the contents to the zip.
+  // freep=1 means libzip will free the buffer when done
+  zip_source_t *source = zip_source_buffer(zip, buffer, buffer_size, 1);
+  if (source == nullptr) {
+    std::cerr << "Failed to create zip source: " << zip_strerror(zip) << "\n";
+    exit(1);
+  }
+  std::string filename = MessageName(message_) + ".msg";
+  zip_int64_t index =
+      zip_file_add(zip, filename.c_str(), source, ZIP_FL_ENC_UTF_8);
+  if (index < 0) {
+    std::cerr << "Failed to add file " << filename
+              << " to zip: " << zip_strerror(zip) << "\n";
+    zip_source_free(source);
+    exit(1);
+  }
+  // Note: zip_file_add takes ownership of source, so we don't free it
 }
 
 void MessageGenerator::Compile() {
@@ -643,9 +685,9 @@ void MessageGenerator::GenerateHeader(std::ostream &os) {
   // Generate serialized size.
   GenerateSerializedSize(os, true);
   // Generate serializer.
-  // GenerateSerializer(os, true);
+  GenerateROSToProto(os, true);
   // Generate deserializer.
-  GenerateDeserializer(os, true);
+  GenerateProtoToROS(os, true);
 
   os << " private:\n";
   GenerateFieldDeclarations(os);
@@ -671,9 +713,9 @@ void MessageGenerator::GenerateSource(std::ostream &os) {
   // Generate serialized size.
   GenerateSerializedSize(os, false);
   // Generate serializer.
-  // GenerateSerializer(os, false);
+  GenerateROSToProto(os, false);
   // Generate deserializer.
-  GenerateDeserializer(os, false);
+  GenerateProtoToROS(os, false);
 
   // sato bank
   // GeneratePhaserBank(os);
@@ -759,7 +801,7 @@ void MessageGenerator::GenerateFieldInitializers(std::ostream &os,
     sep = ", ";
   }
   for (auto &[oneof, u] : unions_) {
-    os << sep << u->member_name << "{";
+    os << sep << u->member_name << "({";
     const char *num_sep = "";
     for (auto &field : u->members) {
       os << num_sep << field->field->number();
@@ -820,7 +862,7 @@ void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl) {
       auto &field = u->members[i];
       os << "  case " << field->field->number() << ":\n";
       os << "    size += " << u->member_name << ".SerializedProtoSize<" << i
-         << ">(" << field->field->number() << ");\n";
+         << ">();\n";
       os << "    break;\n";
     }
     os << "  }\n";
@@ -831,64 +873,74 @@ void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl) {
   os << "size_t " << MessageName(message_) << "::SerializedROSSize() const {\n";
   os << "  size_t size = 0;\n";
   for (auto &field : fields_) {
-    if (field->field->is_repeated()) {
-      os << "  size += " << field->member_name << ".SerializedROSSize();\n";
-    } else {
-      os << "  if (" << field->member_name << ".IsPresent()) {\n";
-      os << "    size += " << field->member_name << ".SerializedROSSize();\n";
-      os << "  }\n";
-    }
+    os << "  size += " << field->member_name << ".SerializedROSSize();\n";
   }
+  // In ROS format we expand all the union members into the message.  ROS has no
+  // concept of oneofs.
   for (auto &[oneof, u] : unions_) {
-    os << "  switch (" << u->member_name << ".Discriminator()) {\n";
-    for (size_t i = 0; i < u->members.size(); i++) {
-      auto &field = u->members[i];
-      os << "  case " << field->field->number() << ":\n";
-      os << "    size += " << u->member_name << ".SerializedROSSize<" << i
-         << ">(" << field->field->number() << ");\n";
-      os << "    break;\n";
-    }
-    os << "  }\n";
+    os << "  size += " << u->member_name << ".SerializedROSSize();\n";
   }
   os << "  return size;\n";
   os << "}\n\n";
 }
 
-void MessageGenerator::GenerateSerializer(std::ostream &os, bool decl) {
+void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
   if (decl) {
-    os << "  absl::Status Serialize(::sato::ProtoBuffer &buffer) const;\n";
+    os << "  absl::Status ROSToProto(::sato::ROSBuffer &ros_buffer, "
+          "::sato::ProtoBuffer &buffer);\n";
+    os << "  absl::Status ParseROS(::sato::ROSBuffer &buffer);\n";
+    os << "  absl::Status WriteProto(::sato::ProtoBuffer &buffer) const;\n";
     return;
   }
+
   os << "absl::Status " << MessageName(message_)
-     << "::Serialize(::sato::ProtoBuffer &buffer) const {\n";
+     << "::ParseROS(::sato::ROSBuffer &buffer) {\n";
+
   for (auto &field : fields_) {
-    if (field->field->is_repeated()) {
-      os << "  if (absl::Status status = " << field->member_name
-         << ".Serialize(buffer); !status.ok()) return status;\n";
-    } else {
-      os << "  if (" << field->member_name << ".IsPresent()) {\n";
-      os << "    if (absl::Status status = " << field->member_name
-         << ".Serialize(buffer); !status.ok()) return status;\n";
-      os << "  }\n";
-    }
+    os << "  if (absl::Status status = " << field->member_name
+       << ".ParseROS(buffer); !status.ok()) return status;\n";
+  }
+  for (auto &[oneof, u] : unions_) {
+    os << "  if (absl::Status status = " << u->member_name
+       << ".ParseROS(buffer); !status.ok()) return status;\n";
+  }
+  os << "  return absl::OkStatus();\n";
+  os << "}\n\n";
+
+  os << "absl::Status " << MessageName(message_)
+     << "::WriteProto(::sato::ProtoBuffer &buffer) const {\n";
+  for (auto &field : fields_) {
+    os << "  if (" << field->member_name << ".IsPresent()) {\n";
+    os << "    if (absl::Status status = " << field->member_name
+       << ".WriteProto(buffer); !status.ok()) return status;\n";
+    os << "  }\n";
   }
   for (auto &[oneof, u] : unions_) {
     os << "  switch (" << u->member_name << ".Discriminator()) {\n";
     for (size_t i = 0; i < u->members.size(); i++) {
       auto &field = u->members[i];
       os << "  case " << field->field->number() << ":\n";
-      os << "    if (absl::Status status = " << u->member_name << ".Serialize<"
-         << i << ">(" << field->field->number()
-         << ", buffer); !status.ok()) return status;\n";
+      os << "    if (absl::Status status = " << u->member_name
+         << ".WriteProto<" << i << ">(buffer); !status.ok()) return status;\n";
       os << "    break;\n";
     }
     os << "  }\n";
   }
   os << "  return absl::OkStatus();\n";
   os << "}\n\n";
+
+  os << "absl::Status " << MessageName(message_)
+     << "::ROSToProto(::sato::ROSBuffer &ros_buffer, "
+          "::sato::ProtoBuffer &buffer) {";
+  os << "  if (absl::Status status = ParseROS(ros_buffer); !status.ok()) return "
+        "status;\n";
+  os << "  if (absl::Status status = WriteProto(buffer); !status.ok()) "
+        "return status;\n";
+  os << "  return absl::OkStatus();\n";
+  os << "}\n\n";
 }
 
-void MessageGenerator::GenerateDeserializer(std::ostream &os, bool decl) {
+void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
   if (decl) {
     os << "  absl::Status ProtoToROS(::sato::ProtoBuffer &buffer, "
           "::sato::ROSBuffer "
@@ -921,8 +973,7 @@ void MessageGenerator::GenerateDeserializer(std::ostream &os, bool decl) {
       auto &field = u->members[i];
       os << "    case " << field->field->number() << ":\n";
       os << "      if (absl::Status status = " << u->member_name
-         << ".ParseProto<" << i << ">(" << field->field->number()
-         << ", buffer); !status.ok()) return status;\n";
+         << ".ParseProto<" << i << ">(buffer); !status.ok()) return status;\n";
       os << "      break;\n";
     }
   }
@@ -944,17 +995,12 @@ void MessageGenerator::GenerateDeserializer(std::ostream &os, bool decl) {
     os << "  if (absl::Status status = " << field->member_name
        << ".WriteROS(buffer); !status.ok()) return status;\n";
   }
+
   for (auto &[oneof, u] : unions_) {
-    os << "  switch (" << u->member_name << ".Discriminator()) {\n";
-    for (size_t i = 0; i < u->members.size(); i++) {
-      auto &field = u->members[i];
-      os << "  case " << field->field->number() << ":\n";
-      os << "    if (absl::Status status = " << u->member_name << ".WriteROS<"
-         << i << ">(" << field->field->number()
-         << ", buffer); !status.ok()) return status;\n";
-      os << "    break;\n";
-    }
-    os << "  }\n";
+    // ROS has no concept of oneofs.  We expand all the union members into the
+    // message.
+    os << "  if (absl::Status status = " << u->member_name
+       << ".WriteROS(buffer); !status.ok()) return status;\n";
   }
   os << "  return absl::OkStatus();\n";
   os << "}\n\n";

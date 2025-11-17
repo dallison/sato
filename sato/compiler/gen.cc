@@ -5,8 +5,11 @@
 #include "sato/compiler/gen.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <unistd.h>
+#include <vector>
 
 namespace sato {
 
@@ -53,12 +56,11 @@ bool CodeGenerator::Generate(
       GeneratedFilename(package_name_, target_name_, file->name());
 
 
-  // Generate ROS messages.  We would really like to generate the .msg files and use
-  // the regular ROS message generator but Bazel requires that all the outputs from
+  // Generate ROS messages. These are generated as a zip file because Bazel requires that all the outputs from
   // the plubin be declared up front in the .bzl file and we don't know what the files
   // will be called until the plugin has run.
   std::filesystem::path ros_message_path(filename);
-  ros_message_path.replace_extension(".h");
+  ros_message_path.replace_extension(".zip");
 
   std::unique_ptr<google::protobuf::io::ZeroCopyOutputStream> ros_output(
       generator_context->Open(ros_message_path.string()));
@@ -73,7 +75,7 @@ bool CodeGenerator::Generate(
   }
 
   std::stringstream ros_stream;
-  gen.GenerateROSMessages(ros_stream);
+  gen.GenerateROSMessagesZip(ros_stream);
 
   std::filesystem::path hp(filename);
   hp.replace_extension(".sato.h");
@@ -149,10 +151,72 @@ Generator::Generator(const google::protobuf::FileDescriptor *file,
   }
 }
 
-void Generator::GenerateROSMessages(std::ostream &os) {
-  for (auto &msg_gen : message_gens_) {
-    msg_gen->GenerateROSMessage(os);
+void Generator::GenerateROSMessagesZip(std::ostream &os) {
+  // Create a single zip file and add all top-level messages (and their nested messages) to it
+  int error;
+
+  // Create a temporary file
+  char tmp_file_template[] = "/tmp/sato_ros_messages_XXXXXX";
+  int fd = mkstemp(tmp_file_template);
+  if (fd < 0) {
+    std::cerr << "Failed to create temporary file" << std::endl;
+    return;
   }
+  close(fd);
+  std::string tmp_file(tmp_file_template);
+
+  // Open a zip archive for writing to the temporary file
+  zip_t *arc = zip_open(tmp_file.c_str(), ZIP_CREATE | ZIP_TRUNCATE, &error);
+  if (arc == nullptr) {
+    std::cerr << "Failed to open zip archive (error code: " << error << ")" << std::endl;
+    std::remove(tmp_file.c_str());
+    return;
+  }
+
+  // Generate all ROS messages in the zip
+  // GenerateROSMessage handles nested messages recursively, so we only need to call
+  // it for top-level messages
+  for (auto &msg_gen : message_gens_) {
+    msg_gen->GenerateROSMessage(arc);
+  }
+
+  // Close the archive (this finalizes the zip structure)
+  if (zip_close(arc) < 0) {
+    std::cerr << "Failed to close zip archive." << std::endl;
+    std::remove(tmp_file.c_str());
+    return;
+  }
+
+  // Read the temporary file and write to the output stream
+  std::ifstream tmp_stream(tmp_file, std::ios::binary);
+  if (!tmp_stream) {
+    std::cerr << "Failed to open temporary file for reading" << std::endl;
+    std::remove(tmp_file.c_str());
+    return;
+  }
+
+  // Read the entire file and write to output stream
+  tmp_stream.seekg(0, std::ios::end);
+  std::streamsize file_size = tmp_stream.tellg();
+  tmp_stream.seekg(0, std::ios::beg);
+
+  if (file_size > 0) {
+    std::vector<char> buffer(file_size);
+    tmp_stream.read(buffer.data(), file_size);
+    if (tmp_stream.gcount() == file_size) {
+      os.write(buffer.data(), file_size);
+    } else {
+      std::cerr << "WARNING: Failed to read entire file (read " << tmp_stream.gcount() 
+                << " of " << file_size << " bytes)" << std::endl;
+    }
+  } else {
+    std::cerr << "WARNING: Zip file is empty" << std::endl;
+  }
+  
+  tmp_stream.close();
+
+  // Clean up temporary file
+  std::remove(tmp_file.c_str());
 }
 
 void Generator::Compile() {

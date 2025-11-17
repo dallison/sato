@@ -78,7 +78,13 @@ protected:
       present_ = true;                                                         \
       return absl::OkStatus();                                                 \
     }                                                                          \
-    absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, value_); }  \
+    absl::Status ParseROS(ROSBuffer &buffer) {                                 \
+      if (absl::Status status = Read(buffer, value_); !status.ok()) {          \
+        return status;                                                         \
+      }                                                                        \
+      present_ = value_ != 0;                                                  \
+      return absl::OkStatus();                                                 \
+    }                                                                          \
     size_t SerializedROSSize() const { return sizeof(type); }                  \
                                                                                \
   private:                                                                     \
@@ -94,39 +100,6 @@ DEFINE_PRIMITIVE_FIELD(Float, float)
 DEFINE_PRIMITIVE_FIELD(Bool, bool)
 
 #undef DEFINE_PRIMITIVE_FIELD
-
-#if 0
-template <typename Enum = int>
-class EnumField : public Field {
-public:
-  using T = typename std::underlying_type<Enum>::type;
-  EnumField() = default;
-  explicit EnumField(int number)
-      : Field(number) {}
-
-  size_t SerializedSize() const {
-    return ProtoBuffer::TagSize(Number(), WireType::kVarint) +
-           ProtoBuffer::VarintSize<int32_t, false>(
-               static_cast<int32_t>(GetUnderlying()));
-  }
-
-  absl::Status Serialize(ProtoBuffer &buffer) const {
-    return buffer.SerializeVarint<int32_t, false>(
-        Number(), static_cast<int32_t>(GetUnderlying()));
-  }
-
-  absl::Status Deserialize(ProtoBuffer &buffer) {
-    absl::StatusOr<T> v = buffer.DeserializeVarint<T, false>();
-    if (!v.ok()) {
-      return v.status();
-    }
-    Set(*v);
-    return absl::OkStatus();
-  }
-
-private:
- };
-#endif
 
 // String field with an offset inline in the message.
 class StringField : public Field {
@@ -157,7 +130,14 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, value_); }
+  absl::Status ParseROS(ROSBuffer &buffer) { 
+    if (absl::Status status = Read(buffer, value_); !status.ok()) {
+      return status;
+    }
+    present_ = value_.size() > 0;
+    std::cerr << "StringField: " << value_ << std::endl;
+    return absl::OkStatus();
+  }
 
 private:
   std::string_view value_ = {}; // No copy made for this.
@@ -167,7 +147,7 @@ template <typename MessageType> class MessageField : public Field {
 public:
   MessageField() = default;
   explicit MessageField(int number) : Field(number) {}
-  
+
   size_t SerializedProtoSize() const {
     return ProtoBuffer::LengthDelimitedSize(Number(),
                                             msg_.SerializedProtoSize());
@@ -197,7 +177,13 @@ public:
     return msg_.ParseProto(sub_buffer);
   }
 
-  absl::Status ParseROS(ROSBuffer &buffer) { return msg_.ParseROS(buffer); }
+  absl::Status ParseROS(ROSBuffer &buffer) { 
+    if (absl::Status status = msg_.ParseROS(buffer); !status.ok()) {
+      return status;
+    }
+    present_ = true;
+    return absl::OkStatus();
+  }
 
 protected:
   MessageType msg_;
