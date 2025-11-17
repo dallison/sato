@@ -5,9 +5,9 @@
 #include "absl/strings/str_format.h"
 #include "sato/testdata/TestMessage.pb.h"
 #include "sato/testdata/TestMessage.sato.h"
+#include "toolbelt/hexdump.h"
 #include <gtest/gtest.h>
 #include <sstream>
-#include "toolbelt/hexdump.h"
 
 TEST(SatoBasicTest, Basic) {
   foo::bar::TestMessage msg;
@@ -34,10 +34,9 @@ TEST(SatoBasicTest, Basic) {
   inner->set_str("Inner2");
   inner->set_f(888);
 
-  msg.set_e(foo::bar::FOO); 
+  msg.set_e(foo::bar::FOO);
 
   msg.set_u1a(0x01020304);
-
 
   std::string serialized;
   msg.SerializeToString(&serialized);
@@ -57,6 +56,8 @@ TEST(SatoBasicTest, Basic) {
 
   sato::ProtoBuffer buffer2;
   sato::ROSBuffer ros_buffer2(ros_buffer.data(), ros_buffer.size());
+  std::cerr << "ros_buffer2: " << ros_buffer2.AsString() << std::endl;
+  toolbelt::Hexdump(ros_buffer2.data(), ros_buffer.size(), stderr);
   status = t.ROSToProto(ros_buffer2, buffer2);
   std::cerr << "status: " << status << std::endl;
   ASSERT_TRUE(status.ok());

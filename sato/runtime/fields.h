@@ -62,7 +62,7 @@ protected:
         return buffer.SerializeVarint<type, Signed>(Number(), value_);         \
       }                                                                        \
     }                                                                          \
-    absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, value_); } \
+    absl::Status WriteROS(ROSBuffer &buffer) const { return Write(buffer, value_); } \
                                                                                \
     absl::Status ParseProto(ProtoBuffer &buffer) {                             \
       absl::StatusOr<type> v;                                                  \
@@ -118,7 +118,7 @@ public:
     return buffer.ProtoBuffer::SerializeLengthDelimited(Number(), value_.data(),
                                                         s);
   }
-  absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, value_); }
+  absl::Status WriteROS(ROSBuffer &buffer) const { return Write(buffer, value_); }
 
   absl::Status ParseProto(ProtoBuffer &buffer) {
     absl::StatusOr<std::string_view> s = buffer.DeserializeString();
@@ -166,7 +166,7 @@ public:
     return msg_.WriteProto(buffer);
   }
 
-  absl::Status WriteROS(ROSBuffer &buffer) { return msg_.WriteROS(buffer); }
+  absl::Status WriteROS(ROSBuffer &buffer) const { return msg_.WriteROS(buffer); }
 
   absl::Status ParseProto(ProtoBuffer &buffer) {
     absl::StatusOr<absl::Span<char>> s = buffer.DeserializeLengthDelimited();

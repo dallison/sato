@@ -53,7 +53,7 @@ public:
     return msg_.WriteProto(buffer);
   }
 
-  absl::Status WriteROS(ROSBuffer &buffer) {
+  absl::Status WriteROS(ROSBuffer &buffer) const {
     int array_size = msg_.IsPresent() ? 1 : 0;
     if (absl::Status status = Write(buffer, array_size); !status.ok()) {
       return status;
@@ -124,7 +124,7 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status WriteROS(ROSBuffer &buffer) {
+  absl::Status WriteROS(ROSBuffer &buffer) const {
     // Write the discrimintor and then the contents of the value tuple
     if (absl::Status status = Write(buffer, Discriminator()); !status.ok()) {
       return status;

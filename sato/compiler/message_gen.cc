@@ -946,7 +946,7 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
           "::sato::ROSBuffer "
           "&ros_buffer);\n";
     os << "  absl::Status ParseProto(::sato::ProtoBuffer &buffer);\n";
-    os << "  absl::Status WriteROS(::sato::ROSBuffer &buffer);\n";
+    os << "  absl::Status WriteROS(::sato::ROSBuffer &buffer) const;\n";
     return;
   }
 
@@ -990,7 +990,7 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
 )XXX";
 
   os << "absl::Status " << MessageName(message_)
-     << "::WriteROS(::sato::ROSBuffer &buffer) {\n";
+     << "::WriteROS(::sato::ROSBuffer &buffer) const {\n";
   for (auto &field : fields_) {
     os << "  if (absl::Status status = " << field->member_name
        << ".WriteROS(buffer); !status.ok()) return status;\n";

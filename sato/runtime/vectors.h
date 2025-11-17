@@ -126,7 +126,7 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, values_); }
+  absl::Status WriteROS(ROSBuffer &buffer) const { return Write(buffer, values_); }
 
   absl::Status ParseProto(ProtoBuffer &buffer) {
     if constexpr (Packed) {
@@ -211,7 +211,17 @@ public:
     }
     return absl::OkStatus();
   }
-  absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, msgs_); }
+  absl::Status WriteROS(ROSBuffer &buffer) const { 
+    if (absl::Status status = Write(buffer, msgs_.size()); !status.ok()) {
+      return status;
+    }
+    for (const auto &msg : msgs_) {
+      if (absl::Status status = msg.WriteROS(buffer); !status.ok()) {
+        return status;
+      }
+    }
+    return absl::OkStatus();
+  }
 
   absl::Status ParseProto(ProtoBuffer &buffer) {
     msgs_.push_back(MessageField<T>());
@@ -277,7 +287,18 @@ public:
     }
     return absl::OkStatus();
   }
-  absl::Status WriteROS(ROSBuffer &buffer) { return Write(buffer, strings_); }
+
+  absl::Status WriteROS(ROSBuffer &buffer) const { 
+    if (absl::Status status = Write(buffer, strings_.size()); !status.ok()) {
+      return status;
+    }
+    for (const auto &s : strings_) {
+      if (absl::Status status = Write(buffer, s); !status.ok()) {
+        return status;
+      }
+    }
+    return absl::OkStatus();
+  }
 
   absl::Status ParseProto(ProtoBuffer &buffer) {
     absl::StatusOr<std::string_view> v = buffer.DeserializeString();
