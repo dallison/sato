@@ -87,9 +87,12 @@ template <typename... T> class UnionField : public Field {
 public:
   UnionField() = default;
   UnionField(std::vector<int> field_numbers)
-      : Field(0), field_numbers_(field_numbers) {}
-
-  bool Is(int number) const { return Discriminator() == number; }
+      : Field(0), field_numbers_(field_numbers) {
+    size_t i = 0;
+    std::apply(
+        [&](auto &...args) { (args.SetNumber(field_numbers_[i++]), ...); },
+        value_);
+  }
 
   int32_t Discriminator() const { return discriminator_; }
 
@@ -98,11 +101,12 @@ public:
   }
 
   size_t SerializedROSSize() const {
-    size_t size = 4;  // 4 bytes for the discriminator
-    // Iterate through all tuple elements at runtime and call SerializedROSSize on each
-    std::apply([&](auto &... args) {
-      size += (args.SerializedROSSize() + ... + 0);
-    }, value_);
+    size_t size = 4; // 4 bytes for the discriminator
+    // Iterate through all tuple elements at runtime and call SerializedROSSize
+    // on each
+    std::apply(
+        [&](auto &...args) { size += (args.SerializedROSSize() + ... + 0); },
+        value_);
     return size;
   }
 
@@ -110,8 +114,7 @@ public:
     return Write(buffer, Discriminator());
   }
 
-  template <int Id>
-  absl::Status WriteProto(ProtoBuffer &buffer) const {
+  template <int Id> absl::Status WriteProto(ProtoBuffer &buffer) const {
     return std::get<Id>(value_).WriteProto(buffer);
   }
 
@@ -131,9 +134,11 @@ public:
     }
     // Iterate through all tuple elements at runtime and call WriteROS on each
     absl::Status result = absl::OkStatus();
-    std::apply([&](auto &... args) {
-      ((result = args.WriteROS(buffer), result.ok()) && ...);
-    }, value_);
+    std::apply(
+        [&](auto &...args) {
+          ((result = args.WriteROS(buffer), result.ok()) && ...);
+        },
+        value_);
     return result;
   }
 
@@ -143,9 +148,11 @@ public:
     }
     // Iterate through all tuple elements at runtime and call ParseROS on each
     absl::Status result = absl::OkStatus();
-    std::apply([&](auto &... args) {
-      ((result = args.ParseROS(buffer), result.ok()) && ...);
-    }, value_);
+    std::apply(
+        [&](auto &...args) {
+          ((result = args.ParseROS(buffer), result.ok()) && ...);
+        },
+        value_);
     return result;
   }
 

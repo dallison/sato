@@ -32,6 +32,8 @@ public:
   int Number() const { return number_; }
   bool IsPresent() const { return present_; }
 
+  void SetNumber(int number) { number_ = number; }
+  
 protected:
   int number_ = 0;
   bool present_ = false;

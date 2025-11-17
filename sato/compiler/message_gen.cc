@@ -896,12 +896,8 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
   os << "absl::Status " << MessageName(message_)
      << "::ParseROS(::sato::ROSBuffer &buffer) {\n";
 
-  for (auto &field : fields_) {
+  for (auto &field : fields_in_order_) {
     os << "  if (absl::Status status = " << field->member_name
-       << ".ParseROS(buffer); !status.ok()) return status;\n";
-  }
-  for (auto &[oneof, u] : unions_) {
-    os << "  if (absl::Status status = " << u->member_name
        << ".ParseROS(buffer); !status.ok()) return status;\n";
   }
   os << "  return absl::OkStatus();\n";
@@ -909,23 +905,26 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
 
   os << "absl::Status " << MessageName(message_)
      << "::WriteProto(::sato::ProtoBuffer &buffer) const {\n";
-  for (auto &field : fields_) {
+  for (auto &field : fields_in_order_) {
+    if (field->IsUnion()) {
+      auto u = std::static_pointer_cast<UnionInfo>(field);
+      os << "  switch (" << u->member_name << ".Discriminator()) {\n";
+      for (size_t i = 0; i < u->members.size(); i++) {
+        auto &field = u->members[i];
+        os << "  case " << field->field->number() << ":\n";
+        os << "    if (absl::Status status = " << u->member_name
+           << ".WriteProto<" << i << ">(buffer); !status.ok()) return status;\n";
+        os << "    break;\n";
+      }
+      os << "  }\n";
+      continue;
+    }
     os << "  if (" << field->member_name << ".IsPresent()) {\n";
     os << "    if (absl::Status status = " << field->member_name
        << ".WriteProto(buffer); !status.ok()) return status;\n";
     os << "  }\n";
   }
-  for (auto &[oneof, u] : unions_) {
-    os << "  switch (" << u->member_name << ".Discriminator()) {\n";
-    for (size_t i = 0; i < u->members.size(); i++) {
-      auto &field = u->members[i];
-      os << "  case " << field->field->number() << ":\n";
-      os << "    if (absl::Status status = " << u->member_name
-         << ".WriteProto<" << i << ">(buffer); !status.ok()) return status;\n";
-      os << "    break;\n";
-    }
-    os << "  }\n";
-  }
+ 
   os << "  return absl::OkStatus();\n";
   os << "}\n\n";
 
@@ -991,15 +990,8 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
 
   os << "absl::Status " << MessageName(message_)
      << "::WriteROS(::sato::ROSBuffer &buffer) const {\n";
-  for (auto &field : fields_) {
+  for (auto &field : fields_in_order_) {
     os << "  if (absl::Status status = " << field->member_name
-       << ".WriteROS(buffer); !status.ok()) return status;\n";
-  }
-
-  for (auto &[oneof, u] : unions_) {
-    // ROS has no concept of oneofs.  We expand all the union members into the
-    // message.
-    os << "  if (absl::Status status = " << u->member_name
        << ".WriteROS(buffer); !status.ok()) return status;\n";
   }
   os << "  return absl::OkStatus();\n";

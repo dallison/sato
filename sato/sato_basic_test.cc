@@ -58,9 +58,13 @@ TEST(SatoBasicTest, Basic) {
   sato::ROSBuffer ros_buffer2(ros_buffer.data(), ros_buffer.size());
   std::cerr << "ros_buffer2: " << ros_buffer2.AsString() << std::endl;
   toolbelt::Hexdump(ros_buffer2.data(), ros_buffer.size(), stderr);
-  status = t.ROSToProto(ros_buffer2, buffer2);
+
+  foo::bar::sato::TestMessage t2;
+  status = t2.ROSToProto(ros_buffer2, buffer2);
   std::cerr << "status: " << status << std::endl;
   ASSERT_TRUE(status.ok());
 
   toolbelt::Hexdump(buffer2.data(), buffer2.size(), stderr);
+  ASSERT_EQ(buffer.size(), buffer2.size());
+  ASSERT_EQ(0, memcmp(buffer.data(), buffer2.data(), buffer2.size()));
 }

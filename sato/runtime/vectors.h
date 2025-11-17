@@ -126,7 +126,9 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status WriteROS(ROSBuffer &buffer) const { return Write(buffer, values_); }
+  absl::Status WriteROS(ROSBuffer &buffer) const {
+    return Write(buffer, values_);
+  }
 
   absl::Status ParseProto(ProtoBuffer &buffer) {
     if constexpr (Packed) {
@@ -167,7 +169,7 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status ParseROS(ROSBuffer &buffer) { 
+  absl::Status ParseROS(ROSBuffer &buffer) {
     if (absl::Status status = Read(buffer, values_); !status.ok()) {
       return status;
     }
@@ -200,19 +202,16 @@ public:
     }
 
     for (const auto &msg : msgs_) {
-      if (absl::Status status = buffer.SerializeLengthDelimitedHeader(
-              Number(), msg.SerializedProtoSize());
-          !status.ok()) {
-        return status;
-      }
       if (absl::Status status = msg.WriteProto(buffer); !status.ok()) {
         return status;
       }
     }
     return absl::OkStatus();
   }
-  absl::Status WriteROS(ROSBuffer &buffer) const { 
-    if (absl::Status status = Write(buffer, msgs_.size()); !status.ok()) {
+  absl::Status WriteROS(ROSBuffer &buffer) const {
+    if (absl::Status status =
+            Write(buffer, static_cast<uint32_t>(msgs_.size()));
+        !status.ok()) {
       return status;
     }
     for (const auto &msg : msgs_) {
@@ -224,20 +223,20 @@ public:
   }
 
   absl::Status ParseProto(ProtoBuffer &buffer) {
-    msgs_.push_back(MessageField<T>());
+    msgs_.push_back(MessageField<T>(Number()));
     if (absl::Status status = msgs_.back().ParseProto(buffer); !status.ok()) {
       return status;
     }
     return absl::OkStatus();
   }
-  
-  absl::Status ParseROS(ROSBuffer &buffer) { 
+
+  absl::Status ParseROS(ROSBuffer &buffer) {
     int num_msgs = 0;
     if (absl::Status status = Read(buffer, num_msgs); !status.ok()) {
       return status;
     }
     for (int i = 0; i < num_msgs; i++) {
-      msgs_.push_back(MessageField<T>());
+      msgs_.push_back(MessageField<T>(Number()));
       if (absl::Status status = msgs_.back().ParseROS(buffer); !status.ok()) {
         return status;
       }
@@ -288,8 +287,10 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status WriteROS(ROSBuffer &buffer) const { 
-    if (absl::Status status = Write(buffer, strings_.size()); !status.ok()) {
+  absl::Status WriteROS(ROSBuffer &buffer) const {
+    if (absl::Status status =
+            Write(buffer, static_cast<uint32_t>(strings_.size()));
+        !status.ok()) {
       return status;
     }
     for (const auto &s : strings_) {
@@ -308,7 +309,21 @@ public:
     strings_.push_back(*v);
     return absl::OkStatus();
   }
-  absl::Status ParseROS(ROSBuffer &buffer) { return Read(buffer, strings_); }
+  absl::Status ParseROS(ROSBuffer &buffer) { 
+    int num_strings = 0;
+    if (absl::Status status = Read(buffer, num_strings); !status.ok()) {
+      return status;
+    }
+    for (int i = 0; i < num_strings; i++) {
+      std::string_view s;
+      if (absl::Status status = Read(buffer, s); !status.ok()) {
+        return status;
+      }
+      strings_.push_back(s);
+    }
+    present_ = num_strings > 0;
+    return absl::OkStatus();
+  }
 
 private:
   std::vector<std::string_view> strings_;
