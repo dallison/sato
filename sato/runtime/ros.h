@@ -167,7 +167,6 @@ template <> inline absl::Status Read(const ROSBuffer &b, std::string_view &v) {
     return status;
   }
   v = std::string_view(b.Addr() + 4, size);
-  std::cerr << "Read string: " << v << std::endl;
   b.Addr() += 4 + size;
   return absl::OkStatus();
 }

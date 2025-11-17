@@ -930,7 +930,7 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
 
   os << "absl::Status " << MessageName(message_)
      << "::ROSToProto(::sato::ROSBuffer &ros_buffer, "
-          "::sato::ProtoBuffer &buffer) {";
+          "::sato::ProtoBuffer &buffer) {\n";
   os << "  if (absl::Status status = ParseROS(ros_buffer); !status.ok()) return "
         "status;\n";
   os << "  if (absl::Status status = WriteProto(buffer); !status.ok()) "
@@ -999,7 +999,7 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
 
   os << "absl::Status " << MessageName(message_)
      << "::ProtoToROS(::sato::ProtoBuffer &buffer, ::sato::ROSBuffer "
-        "&ros_buffer) {";
+        "&ros_buffer) {\n";
   os << "  if (absl::Status status = ParseProto(buffer); !status.ok()) return "
         "status;\n";
   os << "  if (absl::Status status = WriteROS(ros_buffer); !status.ok()) "
