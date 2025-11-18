@@ -1,4 +1,4 @@
-load("//sato:sato_library.bzl", "sato_library")
+load("//sato:sato_proto_library.bzl", "sato_proto_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -40,14 +40,14 @@ cc_proto_library(
     deps = [":test_message_proto"],
 )
 
-sato_library(
+sato_proto_library(
     name = "test_message_sato",
     add_namespace = "sato",
     runtime = "//sato/runtime:sato_runtime",
     deps = [":test_message_proto"],
 )
 
-sato_library(
+sato_proto_library(
     name = "test_sato",
     add_namespace = "sato",
     runtime = "//sato/runtime:sato_runtime",
@@ -64,7 +64,7 @@ cc_proto_library(
     deps = [":vision_proto"],
 )
 
-sato_library(
+sato_proto_library(
     name = "vision_sato",
     add_namespace = "sato",
     runtime = "//sato/runtime:sato_runtime",

@@ -191,7 +191,7 @@ _split_files = rule(
     implementation = _split_files_impl,
 )
 
-def sato_library(name, deps = [], runtime = "@sato//sato/runtime:sato_runtime", add_namespace = ""):
+def sato_proto_library(name, deps = [], runtime = "@sato//sato/runtime:sato_runtime", add_namespace = ""):
     """
     Generate a cc_libary for protobuf files specified in deps.
 
