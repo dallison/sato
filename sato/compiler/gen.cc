@@ -174,8 +174,10 @@ void Generator::GenerateROSMessagesZip(std::ostream &os) {
   }
 
   // Generate all ROS messages in the zip
-  // GenerateROSMessage handles nested messages recursively, so we only need to call
-  // it for top-level messages
+  for (auto &enum_gen : enum_gens_) {
+    enum_gen->GenerateROSMessage(arc);
+  }
+
   for (auto &msg_gen : message_gens_) {
     msg_gen->GenerateROSMessage(arc);
   }
@@ -228,6 +230,7 @@ void Generator::Compile() {
 void Generator::GenerateHeaders(std::ostream &os) {
   os << "#pragma once\n";
   os << "#include \"sato/runtime/runtime.h\"\n";
+  os << "#include \"sato/runtime/message.h\"\n";
   for (int i = 0; i < file_->dependency_count(); i++) {
     std::string base = GeneratedFilename(package_name_, target_name_,
                                          file_->dependency(i)->name());
@@ -237,11 +240,6 @@ void Generator::GenerateHeaders(std::ostream &os) {
   }
 
   OpenNamespace(os);
-
-  // Enums
-  for (auto &enum_gen : enum_gens_) {
-    enum_gen->GenerateHeader(os);
-  }
 
   for (auto &msg_gen : message_gens_) {
     msg_gen->GenerateEnums(os);

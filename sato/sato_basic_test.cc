@@ -68,3 +68,35 @@ TEST(SatoBasicTest, Basic) {
   ASSERT_EQ(buffer.size(), buffer2.size());
   ASSERT_EQ(0, memcmp(buffer.data(), buffer2.data(), buffer2.size()));
 }
+
+TEST(SatoBasicTest, Multiplexer) {
+  foo::bar::TestMessage msg;
+  msg.set_x(1234);
+  msg.set_y(5678);
+  msg.set_s("hello world");
+
+  std::string serialized;
+  msg.SerializeToString(&serialized);
+
+  toolbelt::Hexdump(serialized.data(), serialized.size(), stderr);
+  // Parse from protobuf using the multiplexer
+  sato::ProtoBuffer buffer(serialized);
+  foo::bar::sato::TestMessage t;
+
+  absl::Status status = sato::MultiplexerParseProto("foo.bar.TestMessage", t, buffer);
+  sato::ROSBuffer ros_buffer;
+
+  status = sato::MultiplexerWriteROS("foo.bar.TestMessage", t, ros_buffer);
+  std::cerr << "status: " << status << std::endl;
+  ASSERT_TRUE(status.ok());
+
+  // Convert back to protobuf using the multiplexer
+  sato::ProtoBuffer buffer2;
+  status = sato::MultiplexerWriteProto("foo.bar.TestMessage", t, buffer2);
+  std::cerr << "status: " << status << std::endl;
+  ASSERT_TRUE(status.ok());
+
+  toolbelt::Hexdump(buffer2.data(), buffer2.size(), stderr);
+  ASSERT_EQ(buffer.size(), buffer2.size());
+  ASSERT_EQ(0, memcmp(buffer.data(), buffer2.data(), buffer2.size()));
+}

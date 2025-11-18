@@ -3,7 +3,7 @@ package(default_visibility = ["//visibility:public"])
 cc_library(
     name = "sato_runtime",
     srcs = [
-        # "sato_bank.cc",
+        "mux.cc",
     ],
     hdrs = [
         # "any.h",
@@ -13,7 +13,8 @@ cc_library(
         "union.h",
         "vectors.h",
         "protobuf.h",
-        # "sato_bank.h",
+        "message.h",
+        "mux.h",
     ],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",

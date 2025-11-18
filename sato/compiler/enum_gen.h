@@ -11,14 +11,14 @@
 #include <map>
 #include <memory>
 #include <vector>
-
+#include "zip.h"
 namespace sato {
 
 class EnumGenerator {
 public:
   EnumGenerator(const google::protobuf::EnumDescriptor *e) : enum_(e) {}
 
-  void GenerateHeader(std::ostream &os);
+  void GenerateROSMessage(zip_t *zip);
 
 private:
   friend class MessageGenerator;

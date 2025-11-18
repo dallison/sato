@@ -28,9 +28,9 @@ struct FieldInfo {
   // Constructor.
   FieldInfo(const google::protobuf::FieldDescriptor *f, uint32_t o, uint32_t i,
             const std::string &name, const std::string &mtype,
-            const std::string &ctype, const std::string &ros_type, uint32_t size)
+            const std::string &ctype, const std::string &ros_type)
       : field(f), offset(o), id(i), member_name(name), member_type(mtype),
-        c_type(ctype), ros_type(ros_type), binary_size(size) {
+        c_type(ctype), ros_type(ros_type) {
           // Remove trailing underscore from the ROS member name.
           ros_member_name = member_name.substr(0, member_name.size() - 1);
         }
@@ -44,19 +44,16 @@ struct FieldInfo {
   std::string c_type;
   std::string ros_type;
   std::string ros_member_name;
-  uint32_t binary_size;
 };
 
 struct UnionInfo : public FieldInfo {
   // Constructor
-  UnionInfo(const google::protobuf::OneofDescriptor *o, uint32_t size,
+  UnionInfo(const google::protobuf::OneofDescriptor *o, 
             const std::string &name, const std::string &type)
-      : FieldInfo(nullptr, 0, 0, name, type, "", "", 4), oneof(o),
-        binary_size(size) {}
+      : FieldInfo(nullptr, 0, 0, name, type, "", ""), oneof(o) {}
   bool IsUnion() const override { return true; }
   const google::protobuf::OneofDescriptor *oneof;
   std::vector<std::shared_ptr<FieldInfo>> members;
-  uint32_t binary_size;
 };
 
 class MessageGenerator {
@@ -124,7 +121,7 @@ private:
                                     int union_index, std::ostream &os);
   void GenerateCopy(std::ostream &os, bool decl);
   void GenerateDebugString(std::ostream &os);
-  void GeneratePhaserBank(std::ostream &os);
+  void GenerateMultiplexer(std::ostream &os);
   void GenerateMessageInfo(std::ostream &os, bool decl);
   void GenerateFieldInfo(int index, std::shared_ptr<FieldInfo> field,
                          std::shared_ptr<UnionInfo> union_field,
@@ -153,8 +150,6 @@ private:
            std::shared_ptr<UnionInfo>>
       unions_;
   std::vector<std::shared_ptr<FieldInfo>> fields_in_order_;
-  uint32_t binary_size_ = 4;
-  uint32_t presence_mask_size_ = 0;
   std::string added_namespace_;
   std::string package_name_;
 };

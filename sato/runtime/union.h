@@ -115,7 +115,10 @@ public:
   }
 
   template <int Id> absl::Status WriteProto(ProtoBuffer &buffer) const {
-    return std::get<Id>(value_).WriteProto(buffer);
+    if (std::get<Id>(value_).IsPresent()) {
+      return std::get<Id>(value_).WriteProto(buffer);
+    }
+    return absl::OkStatus();
   }
 
   template <int Id> absl::Status ParseProto(ProtoBuffer &buffer) {

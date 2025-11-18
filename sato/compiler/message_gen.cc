@@ -494,11 +494,9 @@ void MessageGenerator::CompileUnions() {
       union_info->member_type += ", ";
     }
     union_info->member_type += "::sato::" + field_type;
-    uint32_t field_size = FieldBinarySize(field);
     union_info->members.push_back(std::make_shared<FieldInfo>(
         field, 0, union_info->id, field->name() + "_", field_type,
-        FieldCType(field), FieldROSType(field), field_size));
-    union_info->binary_size = std::max(union_info->binary_size, 4 + field_size);
+        FieldCType(field), FieldROSType(field)));
     union_info->id++;
   }
   for (auto &[oneof, union_info] : unions_) {
@@ -526,7 +524,7 @@ void MessageGenerator::CompileFields() {
       auto it = unions_.find(oneof);
       if (it == unions_.end()) {
         auto union_info = std::make_shared<UnionInfo>(
-            oneof, 4, oneof->name() + "_", "UnionField");
+            oneof, oneof->name() + "_", "UnionField");
         unions_[oneof] = union_info;
         fields_in_order_.push_back(union_info);
       }
@@ -536,7 +534,6 @@ void MessageGenerator::CompileFields() {
       field_size = 8;
     } else {
       field_type = FieldCFieldType(field);
-      field_size = FieldBinarySize(field);
       if (field->type() != google::protobuf::FieldDescriptor::TYPE_MESSAGE &&
           field->type() != google::protobuf::FieldDescriptor::TYPE_STRING &&
           field->type() != google::protobuf::FieldDescriptor::TYPE_BYTES) {
@@ -549,7 +546,7 @@ void MessageGenerator::CompileFields() {
     offset = (offset + (field_size - 1)) & ~(field_size - 1);
     fields_.push_back(std::make_shared<FieldInfo>(
         field, offset, id, field->name() + "_", field_type, FieldCType(field),
-        FieldROSType(field), field_size));
+        FieldROSType(field)));
     fields_in_order_.push_back(fields_.back());
     offset += field_size;
     id = next_id;
@@ -557,39 +554,6 @@ void MessageGenerator::CompileFields() {
 }
 
 void MessageGenerator::FinalizeOffsetsAndSizes() {
-  uint32_t size = 4;
-  // Find the max field id.  This will determine the number of 32-bit words we
-  // need for the presence mask.
-  int32_t max_id = -1;
-  for (auto &field : fields_) {
-    max_id = std::max(max_id, int32_t(field->id));
-  }
-  presence_mask_size_ = max_id == -1 ? 0 : ((max_id >> 5) + 1) * 4;
-  size += presence_mask_size_;
-
-  // Finalize the offsets in the fields vector now that we know the header size.
-  for (auto &field : fields_) {
-    field->offset += size;
-  }
-
-  // Set the offsets for the unions.
-  uint32_t offset =
-      fields_.empty() ? size
-                      : (fields_.back()->offset + fields_.back()->binary_size);
-  // Align offset to 4 bytes.
-  offset = (offset + 3) & ~3;
-  size = offset;
-
-  // Add the offset to the unions.
-  for (auto &[oneof, u] : unions_) {
-    u->offset = offset;
-    for (auto &field : u->members) {
-      field->offset += offset;
-    }
-    offset += u->binary_size;
-    size += u->binary_size;
-  }
-  binary_size_ = size;
 }
 
 void MessageGenerator::GenerateROSMessage(zip_t *zip) {
@@ -597,10 +561,30 @@ void MessageGenerator::GenerateROSMessage(zip_t *zip) {
     nested->GenerateROSMessage(zip);
   }
 
+  for (auto &enum_gen : enum_gens_) {
+    enum_gen->GenerateROSMessage(zip);
+  }
+
   // Write the message to a stringstream
   std::stringstream ss;
-  for (auto &field : fields_) {
-    ss << field->ros_type << " " << field->ros_member_name << "\n";
+  for (auto &field : fields_in_order_) {
+    if (field->IsUnion()) {
+      ss << "int32 " << field->ros_member_name << "_discriminator\n";
+      // Expand all members of the union.
+      auto u = static_cast<UnionInfo*>(field.get());
+      for (auto &member : u->members) {
+        if (member->field->type() == google::protobuf::FieldDescriptor::TYPE_MESSAGE) {
+          // Messages fields are an array so that they are optional.
+          ss << member->ros_type << "[] " << member->ros_member_name << "\n";
+        } else {
+          ss << member->ros_type << " " << member->ros_member_name << "\n";
+        }
+       }
+    } else if (field->field->is_repeated()) {
+        ss << field->ros_type << "[] " << field->ros_member_name << "\n";   
+    } else {
+      ss << field->ros_type << " " << field->ros_member_name << "\n";
+    }
   }
 
   // Extract the string from the stringstream
@@ -649,7 +633,7 @@ void MessageGenerator::GenerateHeader(std::ostream &os) {
     nested->GenerateHeader(os);
   }
 
-  os << "class " << MessageName(message_) << " {\n";
+  os << "class " << MessageName(message_) << " : public ::sato::Message {\n";
   os << " public:\n";
   // Generate constructors.
   GenerateConstructors(os, true);
@@ -717,8 +701,8 @@ void MessageGenerator::GenerateSource(std::ostream &os) {
   // Generate deserializer.
   GenerateProtoToROS(os, false);
 
-  // sato bank
-  // GeneratePhaserBank(os);
+  // multiplexer
+  GenerateMultiplexer(os);
 }
 
 void MessageGenerator::GenerateFieldDeclarations(std::ostream &os) {
@@ -735,9 +719,6 @@ void MessageGenerator::GenerateEnums(std::ostream &os) {
   // Nested enums.
   for (auto &msg : nested_message_gens_) {
     msg->GenerateEnums(os);
-  }
-  for (auto &enum_gen : enum_gens_) {
-    enum_gen->GenerateHeader(os);
   }
 }
 
@@ -895,7 +876,9 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
 
   os << "absl::Status " << MessageName(message_)
      << "::ParseROS(::sato::ROSBuffer &buffer) {\n";
-
+  os << "  if (IsPopulated()) { return absl::InvalidArgumentError(\""
+        "Message has already been parsed\"); }\n";
+  os << "  SetPopulated(true);\n";
   for (auto &field : fields_in_order_) {
     os << "  if (absl::Status status = " << field->member_name
        << ".ParseROS(buffer); !status.ok()) return status;\n";
@@ -952,6 +935,10 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
   os << "absl::Status " << MessageName(message_)
      << "::ParseProto(::sato::ProtoBuffer &buffer) {\n";
   os << R"XXX(
+  if (IsPopulated()) {
+    return absl::InvalidArgumentError("Message has already been parsed");
+  }
+  SetPopulated(true);
   while (!buffer.Eof()) {
     absl::StatusOr<uint32_t> tag =
         buffer.DeserializeVarint<uint32_t, false>();
@@ -1019,46 +1006,74 @@ void MessageGenerator::GenerateCopy(std::ostream &os, bool decl) {}
 // DebugString
 void MessageGenerator::GenerateDebugString(std::ostream &os) {}
 
-void MessageGenerator::GeneratePhaserBank(std::ostream &os) {
+void MessageGenerator::GenerateMultiplexer(std::ostream &os) {
 
   os << "static absl::Status " << MessageName(message_)
-     << "SerializeToBuffer(const ::sato::Message& msg, ::sato::ProtoBuffer "
-        "&buffer) {\n";
-  os << "  const " << MessageName(message_) << " *m = static_cast<const "
-     << MessageName(message_) << "*>(&msg);\n";
-  os << "  return m->Serialize(buffer);\n";
-  os << "}\n\n";
-
-  os << "static absl::Status " << MessageName(message_)
-     << "DeserializeFromBuffer(::sato::Message &msg, ::sato::ProtoBuffer "
+     << "ParseProto(::sato::Message& msg, ::sato::ProtoBuffer "
         "&buffer) {\n";
   os << "  " << MessageName(message_) << " *m = static_cast<"
      << MessageName(message_) << "*>(&msg);\n";
-  os << "  return m->Deserialize(buffer);\n";
+  os << "  return m->ParseProto(buffer);\n";
+  os << "}\n\n";
+
+  os << "static absl::Status " << MessageName(message_)
+     << "ParseROS(::sato::Message &msg, ::sato::ROSBuffer "
+        "&buffer) {\n";
+  os << "  " << MessageName(message_) << " *m = static_cast<"
+     << MessageName(message_) << "*>(&msg);\n";
+  os << "  return m->ParseROS(buffer);\n";
   os << "}\n\n";
 
   os << "static size_t " << MessageName(message_)
-     << "SerializedSize(const ::sato::Message& msg) {\n";
+     << "SerializedProtoSize(const ::sato::Message& msg) {\n";
   os << "  const " << MessageName(message_) << " *m = static_cast<const "
      << MessageName(message_) << "*>(&msg);\n";
-  os << "  return m->SerializedSize();\n";
+  os << "  return m->SerializedProtoSize();\n";
   os << "}\n\n";
 
-  os << "static ::sato::BankInfo " << MessageName(message_) << "BankInfo = {\n";
-  os << "  .serialize_to_buffer = " << MessageName(message_)
-     << "SerializeToBuffer,\n";
-  os << "  .deserialize_from_buffer = " << MessageName(message_)
-     << "DeserializeFromBuffer,\n";
-  os << "  .serialized_size = " << MessageName(message_) << "SerializedSize,\n";
+  os << "static size_t " << MessageName(message_)
+     << "SerializedROSSize(const ::sato::Message& msg) {\n";
+  os << "  const " << MessageName(message_) << " *m = static_cast<const "
+     << MessageName(message_) << "*>(&msg);\n";
+  os << "  return m->SerializedROSSize();\n";
+  os << "}\n\n";
+
+  os << "static absl::Status " << MessageName(message_)
+  << "WriteProto(const ::sato::Message& msg, ::sato::ProtoBuffer "
+     << "&buffer) {\n";
+os << "  const " << MessageName(message_) << " *m = static_cast<const "
+  << MessageName(message_) << "*>(&msg);\n";
+os << "  return m->WriteProto(buffer);\n";
+os << "}\n\n";
+
+  os << "static absl::Status " << MessageName(message_)
+     << "WriteROS(const ::sato::Message& msg, ::sato::ROSBuffer "
+     << "&buffer) {\n";
+  os << "  const " << MessageName(message_) << " *m = static_cast<const "
+     << MessageName(message_) << "*>(&msg);\n";
+  os << "  return m->WriteROS(buffer);\n";
+  os << "}\n\n";
+
+  os << "static ::sato::MultiplexerInfo " << MessageName(message_) << "MultiplexerInfo = {\n";
+  os << "  .parse_proto = " << MessageName(message_)
+     << "ParseProto,\n";
+  os << "  .parse_ros = " << MessageName(message_)
+     << "ParseROS,\n";
+  os << "  .write_proto = " << MessageName(message_)
+     << "WriteProto,\n";
+  os << "  .write_ros = " << MessageName(message_)
+     << "WriteROS,\n";
+  os << "  .serialized_proto_size = " << MessageName(message_) << "SerializedProtoSize,\n";
+  os << "  .serialized_ros_size = " << MessageName(message_) << "SerializedROSSize,\n";
 
   os << "};\n\n";
 
-  os << "static struct " << MessageName(message_) << "BankInitializer {\n";
-  os << "  " << MessageName(message_) << "BankInitializer() {\n";
-  os << "    ::sato::PhaserBankRegisterMessage(" << MessageName(message_)
-     << "::FullName(), " << MessageName(message_) << "BankInfo);\n";
+  os << "static struct " << MessageName(message_) << "MuxInitializer {\n";
+  os << "  " << MessageName(message_) << "MuxInitializer() {\n";
+  os << "    ::sato::MultiplexerRegisterMessage(" << MessageName(message_)
+     << "::FullName(), " << MessageName(message_) << "MultiplexerInfo);\n";
   os << "  }\n";
-  os << "} " << MessageName(message_) << "BankInitializer;\n";
+  os << "} " << MessageName(message_) << "MuxInitializer;\n";
 }
 
 void MessageGenerator::GenerateFieldInfo(int index,
