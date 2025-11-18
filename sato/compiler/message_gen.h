@@ -26,10 +26,10 @@ WriteToZeroCopyStream(const std::string &data,
                       google::protobuf::io::ZeroCopyOutputStream *stream);
 struct FieldInfo {
   // Constructor.
-  FieldInfo(const google::protobuf::FieldDescriptor *f, uint32_t o, uint32_t i,
+  FieldInfo(const google::protobuf::FieldDescriptor *f, 
             const std::string &name, const std::string &mtype,
             const std::string &ctype, const std::string &ros_type)
-      : field(f), offset(o), id(i), member_name(name), member_type(mtype),
+      : field(f), member_name(name), member_type(mtype),
         c_type(ctype), ros_type(ros_type) {
           // Remove trailing underscore from the ROS member name.
           ros_member_name = member_name.substr(0, member_name.size() - 1);
@@ -37,8 +37,7 @@ struct FieldInfo {
   virtual ~FieldInfo() = default;
   virtual bool IsUnion() const { return false; }
   const google::protobuf::FieldDescriptor *field;
-  uint32_t offset;
-  uint32_t id;
+
   std::string member_name;
   std::string member_type;
   std::string c_type;
@@ -50,7 +49,7 @@ struct UnionInfo : public FieldInfo {
   // Constructor
   UnionInfo(const google::protobuf::OneofDescriptor *o, 
             const std::string &name, const std::string &type)
-      : FieldInfo(nullptr, 0, 0, name, type, "", ""), oneof(o) {}
+      : FieldInfo(nullptr, name, type, "", ""), oneof(o) {}
   bool IsUnion() const override { return true; }
   const google::protobuf::OneofDescriptor *oneof;
   std::vector<std::shared_ptr<FieldInfo>> members;
@@ -87,47 +86,22 @@ public:
 private:
   void CompileFields();
   void CompileUnions();
-  void FinalizeOffsetsAndSizes();
 
   void GenerateDefaultConstructor(std::ostream &os, bool decl);
-  void GenerateInternalDefaultConstructor(std::ostream &os, bool decl);
-  void GenerateMainConstructor(std::ostream &os, bool decl);
   void GenerateConstructors(std::ostream &os, bool decl);
   void GenerateFieldInitializers(std::ostream &os, const char *sep = ": ");
   void GenerateSizeFunctions(std::ostream &os);
-  void GenerateFieldMetadata(std::ostream &os);
-  void GenerateCreators(std::ostream &os, bool decl);
-  void GenerateClear(std::ostream &os, bool decl);
 
-  void GenerateProtobufAccessors(std::ostream &os);
-  void GenerateFieldProtobufAccessors(std::ostream &os);
-  void GenerateFieldProtobufAccessors(std::shared_ptr<FieldInfo> field,
-                                      std::shared_ptr<UnionInfo> union_field,
-                                      int union_index, std::ostream &os);
-  void GenerateUnionProtobufAccessors(std::ostream &os);
-  void GenerateNestedTypes(std::ostream &os);
-  void GenerateFieldNumbers(std::ostream &os);
   void GenerateSerializedSize(std::ostream &os, bool decl);
   void GenerateROSToProto(std::ostream &os, bool decl);
   void GenerateProtoToROS(std::ostream &os, bool decl);
 
-  void GenerateProtobufSerialization(std::ostream &os);
-  void GenerateIndent(std::ostream &os);
-  void GenerateStreamer(std::ostream &os);
   bool IsAny(const google::protobuf::Descriptor *desc);
   bool IsAny(const google::protobuf::FieldDescriptor *field);
-  void GenerateAnyProtobufAccessors(std::shared_ptr<FieldInfo> field,
-                                    std::shared_ptr<UnionInfo> union_field,
-                                    int union_index, std::ostream &os);
-  void GenerateCopy(std::ostream &os, bool decl);
-  void GenerateDebugString(std::ostream &os);
-  void GenerateMultiplexer(std::ostream &os);
-  void GenerateMessageInfo(std::ostream &os, bool decl);
-  void GenerateFieldInfo(int index, std::shared_ptr<FieldInfo> field,
-                         std::shared_ptr<UnionInfo> union_field,
-                         int union_index, std::ostream &os);
 
-  std::string EnumName(const google::protobuf::EnumDescriptor *desc);
+  void GenerateMultiplexer(std::ostream &os);
+
+
   // If is_ref is true, it changes how the generator treats google.protobuf.Any.
   // For a reference to a google.protobuf.Any, we use an internal
   // ::sato::AnyMessage type.
@@ -140,7 +114,6 @@ private:
   FieldRepeatedCType(const google::protobuf::FieldDescriptor *field);
   std::string FieldUnionCType(const google::protobuf::FieldDescriptor *field);
   uint32_t FieldBinarySize(const google::protobuf::FieldDescriptor *field);
-  std::string FieldInfoType(const google::protobuf::FieldDescriptor *field);
 
   const google::protobuf::Descriptor *message_;
   std::vector<std::unique_ptr<MessageGenerator>> nested_message_gens_;

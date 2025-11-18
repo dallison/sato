@@ -135,14 +135,6 @@ bool IsCppReservedWord(const std::string &s) {
   return reserved_words.contains(s);
 }
 
-std::string
-MessageGenerator::EnumName(const google::protobuf::EnumDescriptor *desc) {
-  std::string name = desc->name();
-  if (desc->containing_type() != nullptr) {
-    name = desc->containing_type()->name() + "_" + name;
-  }
-  return name;
-}
 
 std::string
 MessageGenerator::MessageName(const google::protobuf::Descriptor *desc,
@@ -216,51 +208,6 @@ std::string MessageGenerator::FieldCFieldType(
     exit(1);
   }
   return "unknown";
-}
-
-std::string MessageGenerator::FieldInfoType(
-    const google::protobuf::FieldDescriptor *field) {
-  switch (field->type()) {
-  case google::protobuf::FieldDescriptor::TYPE_INT32:
-    return "::sato::FieldType::kFieldInt32";
-  case google::protobuf::FieldDescriptor::TYPE_SINT32:
-    return "::sato::FieldType::kFieldInt32";
-  case google::protobuf::FieldDescriptor::TYPE_SFIXED32:
-    return "::sato::FieldType::kFieldInt32";
-  case google::protobuf::FieldDescriptor::TYPE_INT64:
-    return "::sato::FieldType::kFieldInt64";
-  case google::protobuf::FieldDescriptor::TYPE_SINT64:
-    return "::sato::FieldType::kFieldInt64";
-  case google::protobuf::FieldDescriptor::TYPE_SFIXED64:
-    return "::sato::FieldType::kFieldInt64";
-  case google::protobuf::FieldDescriptor::TYPE_UINT32:
-    return "::sato::FieldType::kFieldInt32";
-  case google::protobuf::FieldDescriptor::TYPE_FIXED32:
-    return "::sato::FieldType::kFieldInt32";
-  case google::protobuf::FieldDescriptor::TYPE_UINT64:
-    return "::sato::FieldType::kFieldInt64";
-  case google::protobuf::FieldDescriptor::TYPE_FIXED64:
-    return "::sato::FieldType::kFieldInt64";
-  case google::protobuf::FieldDescriptor::TYPE_DOUBLE:
-    return "::sato::FieldType::kFieldDouble";
-  case google::protobuf::FieldDescriptor::TYPE_FLOAT:
-    return "::sato::FieldType::kFieldFloat";
-  case google::protobuf::FieldDescriptor::TYPE_BOOL:
-    return "::sato::FieldType::kFieldBool";
-  case google::protobuf::FieldDescriptor::TYPE_ENUM:
-    return "::sato::FieldType::kFieldEnum";
-  case google::protobuf::FieldDescriptor::TYPE_STRING:
-    return "::sato::FieldType::kFieldString";
-  case google::protobuf::FieldDescriptor::TYPE_BYTES:
-    return "::sato::FieldType::kFieldBytes";
-  case google::protobuf::FieldDescriptor::TYPE_MESSAGE:
-    return "::sato::FieldType::kFieldMessage";
-
-  case google::protobuf::FieldDescriptor::TYPE_GROUP:
-    std::cerr << "Groups are not supported\n";
-    exit(1);
-  }
-  return "::sato::FieldType::kFieldUnknown";
 }
 
 std::string
@@ -426,43 +373,6 @@ std::string MessageGenerator::FieldUnionCType(
   return "::sato::FieldType::kFieldUnknown";
 }
 
-uint32_t MessageGenerator::FieldBinarySize(
-    const google::protobuf::FieldDescriptor *field) {
-  switch (field->type()) {
-  case google::protobuf::FieldDescriptor::TYPE_INT32:
-  case google::protobuf::FieldDescriptor::TYPE_SINT32:
-  case google::protobuf::FieldDescriptor::TYPE_SFIXED32:
-    return 4;
-  case google::protobuf::FieldDescriptor::TYPE_INT64:
-  case google::protobuf::FieldDescriptor::TYPE_SINT64:
-  case google::protobuf::FieldDescriptor::TYPE_SFIXED64:
-    return 8;
-  case google::protobuf::FieldDescriptor::TYPE_UINT32:
-  case google::protobuf::FieldDescriptor::TYPE_FIXED32:
-    return 4;
-  case google::protobuf::FieldDescriptor::TYPE_UINT64:
-  case google::protobuf::FieldDescriptor::TYPE_FIXED64:
-    return 8;
-  case google::protobuf::FieldDescriptor::TYPE_DOUBLE:
-    return 8;
-  case google::protobuf::FieldDescriptor::TYPE_FLOAT:
-    return 4;
-  case google::protobuf::FieldDescriptor::TYPE_BOOL:
-    return 1;
-  case google::protobuf::FieldDescriptor::TYPE_ENUM:
-    return 4;
-  case google::protobuf::FieldDescriptor::TYPE_STRING:
-  case google::protobuf::FieldDescriptor::TYPE_BYTES:
-    return 4;
-  case google::protobuf::FieldDescriptor::TYPE_MESSAGE:
-    return 4;
-  case google::protobuf::FieldDescriptor::TYPE_GROUP:
-    std::cerr << "Groups are not supported\n";
-    exit(1);
-  }
-  return 0;
-}
-
 bool MessageGenerator::IsAny(const google::protobuf::Descriptor *desc) {
   return desc->full_name() == "google.protobuf.Any";
 }
@@ -495,9 +405,8 @@ void MessageGenerator::CompileUnions() {
     }
     union_info->member_type += "::sato::" + field_type;
     union_info->members.push_back(std::make_shared<FieldInfo>(
-        field, 0, union_info->id, field->name() + "_", field_type,
+        field, field->name() + "_", field_type,
         FieldCType(field), FieldROSType(field)));
-    union_info->id++;
   }
   for (auto &[oneof, union_info] : unions_) {
     union_info->member_type += ">";
@@ -505,15 +414,11 @@ void MessageGenerator::CompileUnions() {
 }
 
 void MessageGenerator::CompileFields() {
-  uint32_t offset = 0;
-  uint32_t id = 0;
   fields_.reserve(message_->field_count());
   for (int i = 0; i < message_->field_count(); i++) {
     const auto &field = message_->field(i);
     std::string field_type;
     const google::protobuf::OneofDescriptor *oneof = field->containing_oneof();
-    int32_t field_size;
-    uint32_t next_id = id;
     if (oneof != nullptr) {
       // In order to keep oneof fields in the correct position for printing so
       // that we match the protobuf printer, we create the union field here and
@@ -531,30 +436,20 @@ void MessageGenerator::CompileFields() {
       continue;
     } else if (field->is_repeated()) {
       field_type = FieldRepeatedCType(field);
-      field_size = 8;
     } else {
       field_type = FieldCFieldType(field);
       if (field->type() != google::protobuf::FieldDescriptor::TYPE_MESSAGE &&
           field->type() != google::protobuf::FieldDescriptor::TYPE_STRING &&
           field->type() != google::protobuf::FieldDescriptor::TYPE_BYTES) {
-        // Strings and messages don't consume a presence bit.
-        next_id++;
-      } else {
-        id = 0;
       }
     }
-    offset = (offset + (field_size - 1)) & ~(field_size - 1);
     fields_.push_back(std::make_shared<FieldInfo>(
-        field, offset, id, field->name() + "_", field_type, FieldCType(field),
+        field, field->name() + "_", field_type, FieldCType(field),
         FieldROSType(field)));
     fields_in_order_.push_back(fields_.back());
-    offset += field_size;
-    id = next_id;
   }
 }
 
-void MessageGenerator::FinalizeOffsetsAndSizes() {
-}
 
 void MessageGenerator::GenerateROSMessage(zip_t *zip) {
   for (const auto &nested : nested_message_gens_) {
@@ -625,7 +520,6 @@ void MessageGenerator::GenerateROSMessage(zip_t *zip) {
 void MessageGenerator::Compile() {
   CompileFields();
   CompileUnions();
-  FinalizeOffsetsAndSizes();
 }
 
 void MessageGenerator::GenerateHeader(std::ostream &os) {
@@ -637,14 +531,6 @@ void MessageGenerator::GenerateHeader(std::ostream &os) {
   os << " public:\n";
   // Generate constructors.
   GenerateConstructors(os, true);
-  // Generate size functions.
-  GenerateSizeFunctions(os);
-  // Generate creators.
-  GenerateCreators(os, true);
-  // Generate clear function.
-  GenerateClear(os, true);
-  // Generate field metadata.
-  GenerateFieldMetadata(os);
 
   os << "  static std::string FullName() { return \"" << message_->full_name()
      << "\"; }\n";
@@ -653,18 +539,6 @@ void MessageGenerator::GenerateHeader(std::ostream &os) {
 
   os << "  std::string GetName() const { return Name(); }\n";
   os << "  std::string GetFullName() const { return FullName(); }\n";
-
-  GenerateNestedTypes(os);
-  GenerateFieldNumbers(os);
-
-  GenerateIndent(os);
-  GenerateCopy(os, true);
-  GenerateDebugString(os);
-
-  // Generate protobuf accessors.
-  GenerateProtobufAccessors(os);
-
-  GenerateProtobufSerialization(os);
 
   // Generate serialized size.
   GenerateSerializedSize(os, true);
@@ -676,10 +550,6 @@ void MessageGenerator::GenerateHeader(std::ostream &os) {
   os << " private:\n";
   GenerateFieldDeclarations(os);
   os << "};\n\n";
-
-  // Steamer outside the class.
-  GenerateStreamer(os);
-  GenerateCopy(os, false);
 }
 
 void MessageGenerator::GenerateSource(std::ostream &os) {
@@ -688,12 +558,7 @@ void MessageGenerator::GenerateSource(std::ostream &os) {
   }
 
   GenerateConstructors(os, false);
-
-  // Generate creators.
-  GenerateCreators(os, false);
-  // Generate clear function.
-  GenerateClear(os, false);
-
+  
   // Generate serialized size.
   GenerateSerializedSize(os, false);
   // Generate serializer.
@@ -723,11 +588,7 @@ void MessageGenerator::GenerateEnums(std::ostream &os) {
 }
 
 void MessageGenerator::GenerateConstructors(std::ostream &os, bool decl) {
-  // Generate default constructor.
   GenerateDefaultConstructor(os, decl);
-  // GenerateInternalDefaultConstructor(os, decl);
-  // Generate main constructor.
-  // GenerateMainConstructor(os, decl);
 }
 
 void MessageGenerator::GenerateDefaultConstructor(std::ostream &os, bool decl) {
@@ -738,36 +599,6 @@ void MessageGenerator::GenerateDefaultConstructor(std::ostream &os, bool decl) {
   os << MessageName(message_) << "::" << MessageName(message_) << "()\n";
   // Generate field initializers.
   GenerateFieldInitializers(os);
-  os << "{}\n\n";
-}
-
-void MessageGenerator::GenerateInternalDefaultConstructor(std::ostream &os,
-                                                          bool decl) {
-  if (decl) {
-    os << "  " << MessageName(message_) << "(::sato::InternalDefault d);\n";
-    return;
-  }
-  os << MessageName(message_) << "::" << MessageName(message_)
-     << "(::sato::InternalDefault d)\n";
-  // Generate field initializers.
-  GenerateFieldInitializers(os);
-  os << "{}\n\n";
-}
-
-void MessageGenerator::GenerateMainConstructor(std::ostream &os, bool decl) {
-  if (decl) {
-    os << "  " << MessageName(message_)
-       << "(std::shared_ptr<::sato::MessageRuntime> runtime, "
-          "::toolbelt::BufferOffset "
-          "offset);\n";
-    return;
-  }
-  os << MessageName(message_) << "::" << MessageName(message_) << "(";
-  os << "std::shared_ptr<::sato::MessageRuntime> runtime, "
-        "::toolbelt::BufferOffset "
-        "offset) : Message(runtime, offset)\n";
-  // Generate field initializers.
-  GenerateFieldInitializers(os, ", ");
   os << "{}\n\n";
 }
 
@@ -792,32 +623,6 @@ void MessageGenerator::GenerateFieldInitializers(std::ostream &os,
     sep = ", ";
   }
 }
-
-void MessageGenerator::GenerateCreators(std::ostream &os, bool decl) {}
-
-void MessageGenerator::GenerateSizeFunctions(std::ostream &os) {}
-
-void MessageGenerator::GenerateFieldMetadata(std::ostream &os) {}
-
-void MessageGenerator::GenerateClear(std::ostream &os, bool decl) {}
-
-void MessageGenerator::GenerateProtobufAccessors(std::ostream &os) {}
-
-void MessageGenerator::GenerateFieldProtobufAccessors(std::ostream &os) {}
-
-void MessageGenerator::GenerateFieldProtobufAccessors(
-    std::shared_ptr<FieldInfo> field, std::shared_ptr<UnionInfo> union_field,
-    int union_index, std::ostream &os) {}
-
-void MessageGenerator::GenerateAnyProtobufAccessors(
-    std::shared_ptr<FieldInfo> field, std::shared_ptr<UnionInfo> union_field,
-    int union_index, std::ostream &os) {}
-
-void MessageGenerator::GenerateUnionProtobufAccessors(std::ostream &os) {}
-
-void MessageGenerator::GenerateNestedTypes(std::ostream &os) {}
-
-void MessageGenerator::GenerateFieldNumbers(std::ostream &os) {}
 
 void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl) {
   if (decl) {
@@ -995,17 +800,6 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
   os << "}\n\n";
 }
 
-void MessageGenerator::GenerateProtobufSerialization(std::ostream &os) {}
-
-void MessageGenerator::GenerateIndent(std::ostream &os) {}
-
-void MessageGenerator::GenerateStreamer(std::ostream &os) {}
-
-void MessageGenerator::GenerateCopy(std::ostream &os, bool decl) {}
-
-// DebugString
-void MessageGenerator::GenerateDebugString(std::ostream &os) {}
-
 void MessageGenerator::GenerateMultiplexer(std::ostream &os) {
 
   os << "static absl::Status " << MessageName(message_)
@@ -1075,10 +869,5 @@ os << "}\n\n";
   os << "  }\n";
   os << "} " << MessageName(message_) << "MuxInitializer;\n";
 }
-
-void MessageGenerator::GenerateFieldInfo(int index,
-                                         std::shared_ptr<FieldInfo> field,
-                                         std::shared_ptr<UnionInfo> union_field,
-                                         int union_index, std::ostream &os) {}
 
 } // namespace sato
