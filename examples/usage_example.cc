@@ -1,3 +1,7 @@
+// This is heavily based on Phaser (https://github.com/dallison/phaser) and
+// Neutron (https://github.com/dallison/neutron).
+// Copyright (C) 2025 David Allison.  All Rights Reserved.
+
 #include <iostream>
 #include <string>
 #include <vector>
