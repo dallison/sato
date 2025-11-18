@@ -12,6 +12,7 @@
 namespace sato {
 
 struct MultiplexerInfo {
+  std::unique_ptr<Message> (*create_message)();
   absl::Status (*parse_proto)(Message &msg, ProtoBuffer &buffer);
   absl::Status (*parse_ros)(Message &msg, ROSBuffer &buffer);
   absl::Status (*write_proto)(const Message &msg, ProtoBuffer &buffer);
@@ -27,7 +28,7 @@ absl::StatusOr<MultiplexerInfo *> GetMultiplexerInfo(std::string message_type);
 
 void MultiplexerRegisterMessage(const std::string &name, const MultiplexerInfo &info);
 
-
+std::unique_ptr<Message> MultiplexerCreateMessage(const std::string &message_type);
 absl::Status MultiplexerParseProto(const std::string &message_type, Message &msg, ProtoBuffer &buffer);
 absl::Status MultiplexerParseROS(const std::string &message_type, Message &msg, ROSBuffer &buffer);
 absl::Status MultiplexerWriteProto(const std::string &message_type, const Message &msg, ProtoBuffer &buffer);

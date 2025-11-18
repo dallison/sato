@@ -549,8 +549,8 @@ void MessageGenerator::GenerateHeader(std::ostream &os) {
   os << "  static std::string Name() { return \"" << message_->name()
      << "\"; }\n\n";
 
-  os << "  std::string GetName() const { return Name(); }\n";
-  os << "  std::string GetFullName() const { return FullName(); }\n";
+  os << "  std::string GetName() const override { return Name(); }\n";
+  os << "  std::string GetFullName() const override { return FullName(); }\n";
 
   // Generate serialized size.
   GenerateSerializedSize(os, true, 0);
@@ -655,8 +655,8 @@ void MessageGenerator::GenerateFieldInitializers(std::ostream &os,
 
 void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl, int level) {
   if (decl) {
-    os << "  size_t SerializedProtoSize() const;\n";
-    os << "  size_t SerializedROSSize() const;\n";
+    os << "  size_t SerializedProtoSize() const override;\n";
+    os << "  size_t SerializedROSSize() const override;\n";
     return;
   }
   os << "size_t " << MessageName(message_)
@@ -706,10 +706,8 @@ void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl, int l
 
 void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl, int level) {
   if (decl) {
-    os << "  absl::Status ROSToProto(::sato::ROSBuffer &ros_buffer, "
-          "::sato::ProtoBuffer &buffer);\n";
-    os << "  absl::Status ParseROS(::sato::ROSBuffer &buffer);\n";
-    os << "  absl::Status WriteProto(::sato::ProtoBuffer &buffer) const;\n";
+    os << "  absl::Status ParseROS(::sato::ROSBuffer &buffer) override;\n";
+    os << "  absl::Status WriteProto(::sato::ProtoBuffer &buffer) const override;\n";
     return;
   }
 
@@ -755,23 +753,12 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl, int level
   os << "  return absl::OkStatus();\n";
   os << "}\n\n";
 
-  os << "absl::Status " << MessageName(message_)
-     << "::ROSToProto(::sato::ROSBuffer &ros_buffer, "
-        "::sato::ProtoBuffer &buffer) {\n";
-  os << "  if (absl::Status status = ParseROS(ros_buffer); !status.ok()) "
-        "return "
-        "status;\n";
-  os << "  if (absl::Status status = WriteProto(buffer); !status.ok()) "
-        "return status;\n";
-  os << "  return absl::OkStatus();\n";
-  os << "}\n\n";
 }
 
 void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl, int level) {
   if (decl) {
-    os << "  absl::Status ProtoToROS(::sato::ProtoBuffer &buffer, ::sato::ROSBuffer &ros_buffer, uint64_t timestamp = 0);\n";
-    os << "  absl::Status ParseProto(::sato::ProtoBuffer &buffer);\n";
-    os << "  absl::Status WriteROS(::sato::ROSBuffer &buffer, uint64_t timestamp = 0) const;\n";
+    os << "  absl::Status ParseProto(::sato::ProtoBuffer &buffer) override;\n";
+    os << "  absl::Status WriteROS(::sato::ROSBuffer &buffer, uint64_t timestamp = 0) const override;\n";
     return;
   }
 
@@ -838,18 +825,12 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl, int level
   }
   os << "  return absl::OkStatus();\n";
   os << "}\n\n";
-
-  os << "absl::Status " << MessageName(message_)
-     << "::ProtoToROS(::sato::ProtoBuffer &buffer, ::sato::ROSBuffer &ros_buffer, uint64_t timestamp) {\n";
-  os << "  if (absl::Status status = ParseProto(buffer); !status.ok()) return "
-        "status;\n";
-  os << "  if (absl::Status status = WriteROS(ros_buffer, timestamp); !status.ok()) "
-        "return status;\n";
-  os << "  return absl::OkStatus();\n";
-  os << "}\n\n";
 }
 
 void MessageGenerator::GenerateMultiplexer(std::ostream &os) {
+  os << "static std::unique_ptr<::sato::Message> " << MessageName(message_) << "CreateMessage() {\n";
+  os << "  return std::make_unique<" << MessageName(message_) << ">();\n";
+  os << "}\n\n";
 
   os << "static absl::Status " << MessageName(message_)
      << "ParseProto(::sato::Message& msg, ::sato::ProtoBuffer "
@@ -899,6 +880,7 @@ void MessageGenerator::GenerateMultiplexer(std::ostream &os) {
 
   os << "static ::sato::MultiplexerInfo " << MessageName(message_)
      << "MultiplexerInfo = {\n";
+  os << "  .create_message = " << MessageName(message_) << "CreateMessage,\n";
   os << "  .parse_proto = " << MessageName(message_) << "ParseProto,\n";
   os << "  .parse_ros = " << MessageName(message_) << "ParseROS,\n";
   os << "  .write_proto = " << MessageName(message_) << "WriteProto,\n";

@@ -31,7 +31,7 @@ proto_library(
         "TestMessage.proto",
     ],
     deps = [
-        # "@com_google_protobuf//:any_proto",
+        "@com_google_protobuf//:any_proto",
     ],
 )
 

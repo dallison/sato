@@ -140,6 +140,8 @@ public:
     return absl::OkStatus();
   }
 
+  std::string_view Value() const { return value_; }
+
 private:
   std::string_view value_ = {}; // No copy made for this.
 };

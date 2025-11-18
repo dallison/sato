@@ -28,6 +28,14 @@ void MultiplexerRegisterMessage(const std::string &name, const MultiplexerInfo &
   (*sato_multiplexers)[name] = info;
 }
 
+std::unique_ptr<Message> MultiplexerCreateMessage(const std::string &message_type) {
+  absl::StatusOr<MultiplexerInfo *> multiplexer_info = GetMultiplexerInfo(message_type);
+  if (!multiplexer_info.ok()) {
+    return nullptr;
+  }
+  return (*multiplexer_info)->create_message();
+}
+
 absl::Status MultiplexerParseProto(const std::string &message_type, Message &msg, ProtoBuffer &buffer) {
   absl::StatusOr<MultiplexerInfo *> multiplexer_info = GetMultiplexerInfo(message_type);
   if (!multiplexer_info.ok()) {

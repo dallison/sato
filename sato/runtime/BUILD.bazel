@@ -15,6 +15,7 @@ cc_library(
         "protobuf.h",
         "message.h",
         "mux.h",
+        "any.h",
     ],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
