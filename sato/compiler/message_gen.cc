@@ -135,7 +135,6 @@ bool IsCppReservedWord(const std::string &s) {
   return reserved_words.contains(s);
 }
 
-
 std::string
 MessageGenerator::MessageName(const google::protobuf::Descriptor *desc,
                               bool is_ref) {
@@ -404,9 +403,9 @@ void MessageGenerator::CompileUnions() {
       union_info->member_type += ", ";
     }
     union_info->member_type += "::sato::" + field_type;
-    union_info->members.push_back(std::make_shared<FieldInfo>(
-        field, field->name() + "_", field_type,
-        FieldCType(field), FieldROSType(field)));
+    union_info->members.push_back(
+        std::make_shared<FieldInfo>(field, field->name() + "_", field_type,
+                                    FieldCType(field), FieldROSType(field)));
   }
   for (auto &[oneof, union_info] : unions_) {
     union_info->member_type += ">";
@@ -443,17 +442,16 @@ void MessageGenerator::CompileFields() {
           field->type() != google::protobuf::FieldDescriptor::TYPE_BYTES) {
       }
     }
-    fields_.push_back(std::make_shared<FieldInfo>(
-        field, field->name() + "_", field_type, FieldCType(field),
-        FieldROSType(field)));
+    fields_.push_back(std::make_shared<FieldInfo>(field, field->name() + "_",
+                                                  field_type, FieldCType(field),
+                                                  FieldROSType(field)));
     fields_in_order_.push_back(fields_.back());
   }
 }
 
-
-void MessageGenerator::GenerateROSMessage(zip_t *zip) {
+void MessageGenerator::GenerateROSMessage(zip_t *zip, int level) {
   for (const auto &nested : nested_message_gens_) {
-    nested->GenerateROSMessage(zip);
+    nested->GenerateROSMessage(zip, level + 1);
   }
 
   for (auto &enum_gen : enum_gens_) {
@@ -462,21 +460,31 @@ void MessageGenerator::GenerateROSMessage(zip_t *zip) {
 
   // Write the message to a stringstream
   std::stringstream ss;
+
+  GenerateFieldNumbers(ss);
+  ss << "\n";
+
+  // All top level messages have a header.
+  if (level == 0) {
+    ss << "std_msgs/Header header\n\n";
+  }
+
   for (auto &field : fields_in_order_) {
     if (field->IsUnion()) {
-      ss << "int32 " << field->ros_member_name << "_discriminator\n";
+      ss << "int32 " << field->ros_member_name << "_case\n";
       // Expand all members of the union.
-      auto u = static_cast<UnionInfo*>(field.get());
+      auto u = static_cast<UnionInfo *>(field.get());
       for (auto &member : u->members) {
-        if (member->field->type() == google::protobuf::FieldDescriptor::TYPE_MESSAGE) {
+        if (member->field->type() ==
+            google::protobuf::FieldDescriptor::TYPE_MESSAGE) {
           // Messages fields are an array so that they are optional.
           ss << member->ros_type << "[] " << member->ros_member_name << "\n";
         } else {
           ss << member->ros_type << " " << member->ros_member_name << "\n";
         }
-       }
+      }
     } else if (field->field->is_repeated()) {
-        ss << field->ros_type << "[] " << field->ros_member_name << "\n";   
+      ss << field->ros_type << "[] " << field->ros_member_name << "\n";
     } else {
       ss << field->ros_type << " " << field->ros_member_name << "\n";
     }
@@ -518,6 +526,10 @@ void MessageGenerator::GenerateROSMessage(zip_t *zip) {
 }
 
 void MessageGenerator::Compile() {
+  for (const auto &nested : nested_message_gens_) {
+    nested->Compile();
+  }
+
   CompileFields();
   CompileUnions();
 }
@@ -541,30 +553,30 @@ void MessageGenerator::GenerateHeader(std::ostream &os) {
   os << "  std::string GetFullName() const { return FullName(); }\n";
 
   // Generate serialized size.
-  GenerateSerializedSize(os, true);
+  GenerateSerializedSize(os, true, 0);
   // Generate serializer.
-  GenerateROSToProto(os, true);
+  GenerateROSToProto(os, true, 0);
   // Generate deserializer.
-  GenerateProtoToROS(os, true);
+  GenerateProtoToROS(os, true, 0);
 
   os << " private:\n";
   GenerateFieldDeclarations(os);
   os << "};\n\n";
 }
 
-void MessageGenerator::GenerateSource(std::ostream &os) {
+void MessageGenerator::GenerateSource(std::ostream &os, int level) {
   for (const auto &nested : nested_message_gens_) {
-    nested->GenerateSource(os);
+    nested->GenerateSource(os, level + 1);
   }
 
   GenerateConstructors(os, false);
-  
+
   // Generate serialized size.
-  GenerateSerializedSize(os, false);
+  GenerateSerializedSize(os, false, level);
   // Generate serializer.
-  GenerateROSToProto(os, false);
+  GenerateROSToProto(os, false, level);
   // Generate deserializer.
-  GenerateProtoToROS(os, false);
+  GenerateProtoToROS(os, false, level);
 
   // multiplexer
   GenerateMultiplexer(os);
@@ -584,6 +596,23 @@ void MessageGenerator::GenerateEnums(std::ostream &os) {
   // Nested enums.
   for (auto &msg : nested_message_gens_) {
     msg->GenerateEnums(os);
+  }
+}
+
+void MessageGenerator::GenerateFieldNumbers(std::ostream &os) {
+  for (auto &field : fields_) {
+    std::string name = field->field->camelcase_name();
+    name = absl::StrFormat("k%c%s", toupper(name[0]), name.substr(1));
+    os << "int32 " << name << "FieldNumber = " << field->field->number()
+       << "\n";
+  }
+  for (auto &[oneof, u] : unions_) {
+    for (auto &field : u->members) {
+      std::string name = field->field->camelcase_name();
+      name = absl::StrFormat("k%c%s", toupper(name[0]), name.substr(1));
+      os << "int32 " << name << "FieldNumber = " << field->field->number()
+         << "\n";
+    }
   }
 }
 
@@ -624,7 +653,7 @@ void MessageGenerator::GenerateFieldInitializers(std::ostream &os,
   }
 }
 
-void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl) {
+void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl, int level) {
   if (decl) {
     os << "  size_t SerializedProtoSize() const;\n";
     os << "  size_t SerializedROSSize() const;\n";
@@ -657,7 +686,12 @@ void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl) {
   os << "}\n\n";
 
   os << "size_t " << MessageName(message_) << "::SerializedROSSize() const {\n";
-  os << "  size_t size = 0;\n";
+  if (level == 0) {
+    // Header is 16 bytes.
+    os << "  size_t size = 16;\n";
+  } else {
+    os << "  size_t size = 0;\n";
+  }
   for (auto &field : fields_) {
     os << "  size += " << field->member_name << ".SerializedROSSize();\n";
   }
@@ -670,7 +704,7 @@ void MessageGenerator::GenerateSerializedSize(std::ostream &os, bool decl) {
   os << "}\n\n";
 }
 
-void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
+void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl, int level) {
   if (decl) {
     os << "  absl::Status ROSToProto(::sato::ROSBuffer &ros_buffer, "
           "::sato::ProtoBuffer &buffer);\n";
@@ -684,6 +718,10 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
   os << "  if (IsPopulated()) { return absl::InvalidArgumentError(\""
         "Message has already been parsed\"); }\n";
   os << "  SetPopulated(true);\n";
+  if (level == 0) {
+    // Just skip the header as it won't be present in the protobuf message.
+    os << "  if (absl::Status status = buffer.Skip(16); !status.ok()) return status;\n";
+  }
   for (auto &field : fields_in_order_) {
     os << "  if (absl::Status status = " << field->member_name
        << ".ParseROS(buffer); !status.ok()) return status;\n";
@@ -701,7 +739,8 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
         auto &field = u->members[i];
         os << "  case " << field->field->number() << ":\n";
         os << "    if (absl::Status status = " << u->member_name
-           << ".WriteProto<" << i << ">(buffer); !status.ok()) return status;\n";
+           << ".WriteProto<" << i
+           << ">(buffer); !status.ok()) return status;\n";
         os << "    break;\n";
       }
       os << "  }\n";
@@ -712,14 +751,15 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
        << ".WriteProto(buffer); !status.ok()) return status;\n";
     os << "  }\n";
   }
- 
+
   os << "  return absl::OkStatus();\n";
   os << "}\n\n";
 
   os << "absl::Status " << MessageName(message_)
      << "::ROSToProto(::sato::ROSBuffer &ros_buffer, "
-          "::sato::ProtoBuffer &buffer) {\n";
-  os << "  if (absl::Status status = ParseROS(ros_buffer); !status.ok()) return "
+        "::sato::ProtoBuffer &buffer) {\n";
+  os << "  if (absl::Status status = ParseROS(ros_buffer); !status.ok()) "
+        "return "
         "status;\n";
   os << "  if (absl::Status status = WriteProto(buffer); !status.ok()) "
         "return status;\n";
@@ -727,13 +767,11 @@ void MessageGenerator::GenerateROSToProto(std::ostream &os, bool decl) {
   os << "}\n\n";
 }
 
-void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
+void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl, int level) {
   if (decl) {
-    os << "  absl::Status ProtoToROS(::sato::ProtoBuffer &buffer, "
-          "::sato::ROSBuffer "
-          "&ros_buffer);\n";
+    os << "  absl::Status ProtoToROS(::sato::ProtoBuffer &buffer, ::sato::ROSBuffer &ros_buffer, uint64_t timestamp = 0);\n";
     os << "  absl::Status ParseProto(::sato::ProtoBuffer &buffer);\n";
-    os << "  absl::Status WriteROS(::sato::ROSBuffer &buffer) const;\n";
+    os << "  absl::Status WriteROS(::sato::ROSBuffer &buffer, uint64_t timestamp = 0) const;\n";
     return;
   }
 
@@ -781,7 +819,19 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
 )XXX";
 
   os << "absl::Status " << MessageName(message_)
-     << "::WriteROS(::sato::ROSBuffer &buffer) const {\n";
+     << "::WriteROS(::sato::ROSBuffer &buffer, uint64_t timestamp) const {\n";
+  if (level == 0) {
+    // Write the header.  This is defined as the ROS message:
+    // uint32 seq   - offset 0 size 4
+    // time stamp - offset 4 size 8
+    // string frame_id - offset 12 size 4 + string length (empty)
+    // Total size is 16.
+    os << "  if (absl::Status status = Write(buffer, uint32_t(0)); !status.ok()) return status;\n";
+    // ROS time is two 32 bit numbers: seconds and nanoseconds.
+    os << "  if (absl::Status status = Write(buffer, uint32_t(timestamp / 1000000000)); !status.ok()) return status;\n";
+    os << "  if (absl::Status status = Write(buffer, uint32_t(timestamp % 1000000000)); !status.ok()) return status;\n";
+    os << "  if (absl::Status status = Write(buffer, uint32_t(0)); !status.ok()) return status;\n";
+  }
   for (auto &field : fields_in_order_) {
     os << "  if (absl::Status status = " << field->member_name
        << ".WriteROS(buffer); !status.ok()) return status;\n";
@@ -790,11 +840,10 @@ void MessageGenerator::GenerateProtoToROS(std::ostream &os, bool decl) {
   os << "}\n\n";
 
   os << "absl::Status " << MessageName(message_)
-     << "::ProtoToROS(::sato::ProtoBuffer &buffer, ::sato::ROSBuffer "
-        "&ros_buffer) {\n";
+     << "::ProtoToROS(::sato::ProtoBuffer &buffer, ::sato::ROSBuffer &ros_buffer, uint64_t timestamp) {\n";
   os << "  if (absl::Status status = ParseProto(buffer); !status.ok()) return "
         "status;\n";
-  os << "  if (absl::Status status = WriteROS(ros_buffer); !status.ok()) "
+  os << "  if (absl::Status status = WriteROS(ros_buffer, timestamp); !status.ok()) "
         "return status;\n";
   os << "  return absl::OkStatus();\n";
   os << "}\n\n";
@@ -833,12 +882,12 @@ void MessageGenerator::GenerateMultiplexer(std::ostream &os) {
   os << "}\n\n";
 
   os << "static absl::Status " << MessageName(message_)
-  << "WriteProto(const ::sato::Message& msg, ::sato::ProtoBuffer "
+     << "WriteProto(const ::sato::Message& msg, ::sato::ProtoBuffer "
      << "&buffer) {\n";
-os << "  const " << MessageName(message_) << " *m = static_cast<const "
-  << MessageName(message_) << "*>(&msg);\n";
-os << "  return m->WriteProto(buffer);\n";
-os << "}\n\n";
+  os << "  const " << MessageName(message_) << " *m = static_cast<const "
+     << MessageName(message_) << "*>(&msg);\n";
+  os << "  return m->WriteProto(buffer);\n";
+  os << "}\n\n";
 
   os << "static absl::Status " << MessageName(message_)
      << "WriteROS(const ::sato::Message& msg, ::sato::ROSBuffer "
@@ -848,17 +897,16 @@ os << "}\n\n";
   os << "  return m->WriteROS(buffer);\n";
   os << "}\n\n";
 
-  os << "static ::sato::MultiplexerInfo " << MessageName(message_) << "MultiplexerInfo = {\n";
-  os << "  .parse_proto = " << MessageName(message_)
-     << "ParseProto,\n";
-  os << "  .parse_ros = " << MessageName(message_)
-     << "ParseROS,\n";
-  os << "  .write_proto = " << MessageName(message_)
-     << "WriteProto,\n";
-  os << "  .write_ros = " << MessageName(message_)
-     << "WriteROS,\n";
-  os << "  .serialized_proto_size = " << MessageName(message_) << "SerializedProtoSize,\n";
-  os << "  .serialized_ros_size = " << MessageName(message_) << "SerializedROSSize,\n";
+  os << "static ::sato::MultiplexerInfo " << MessageName(message_)
+     << "MultiplexerInfo = {\n";
+  os << "  .parse_proto = " << MessageName(message_) << "ParseProto,\n";
+  os << "  .parse_ros = " << MessageName(message_) << "ParseROS,\n";
+  os << "  .write_proto = " << MessageName(message_) << "WriteProto,\n";
+  os << "  .write_ros = " << MessageName(message_) << "WriteROS,\n";
+  os << "  .serialized_proto_size = " << MessageName(message_)
+     << "SerializedProtoSize,\n";
+  os << "  .serialized_ros_size = " << MessageName(message_)
+     << "SerializedROSSize,\n";
 
   os << "};\n\n";
 

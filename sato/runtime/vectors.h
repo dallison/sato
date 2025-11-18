@@ -188,12 +188,17 @@ public:
   size_t SerializedProtoSize() const {
     size_t length = 0;
     for (size_t i = 0; i < msgs_.size(); i++) {
-      length += sato::ProtoBuffer::LengthDelimitedSize(
-          Number(), msgs_[i].SerializedProtoSize());
+      length += msgs_[i].SerializedProtoSize();
     }
     return length;
   }
-  size_t SerializedROSSize() const { return 4 + msgs_.size() * sizeof(T); }
+  size_t SerializedROSSize() const { 
+    size_t length = 0;
+    for (size_t i = 0; i < msgs_.size(); i++) {
+      length += msgs_[i].SerializedROSSize();
+    }
+    return 4 + length;
+  }
 
   absl::Status WriteProto(ProtoBuffer &buffer) const {
     size_t sz = msgs_.size();

@@ -76,8 +76,8 @@ public:
   void Compile();
 
   void GenerateHeader(std::ostream &os);
-  void GenerateSource(std::ostream &os);
-  void GenerateROSMessage(zip_t *zip);
+  void GenerateSource(std::ostream &os, int level = 0);
+  void GenerateROSMessage(zip_t *zip, int level = 0);
 
   void GenerateFieldDeclarations(std::ostream &os);
 
@@ -92,9 +92,9 @@ private:
   void GenerateFieldInitializers(std::ostream &os, const char *sep = ": ");
   void GenerateSizeFunctions(std::ostream &os);
 
-  void GenerateSerializedSize(std::ostream &os, bool decl);
-  void GenerateROSToProto(std::ostream &os, bool decl);
-  void GenerateProtoToROS(std::ostream &os, bool decl);
+  void GenerateSerializedSize(std::ostream &os, bool decl, int level);
+  void GenerateROSToProto(std::ostream &os, bool decl, int level);
+  void GenerateProtoToROS(std::ostream &os, bool decl, int level);
 
   bool IsAny(const google::protobuf::Descriptor *desc);
   bool IsAny(const google::protobuf::FieldDescriptor *field);
@@ -114,6 +114,8 @@ private:
   FieldRepeatedCType(const google::protobuf::FieldDescriptor *field);
   std::string FieldUnionCType(const google::protobuf::FieldDescriptor *field);
   uint32_t FieldBinarySize(const google::protobuf::FieldDescriptor *field);
+  void GenerateFieldNumbers(std::ostream &os);
+
 
   const google::protobuf::Descriptor *message_;
   std::vector<std::unique_ptr<MessageGenerator>> nested_message_gens_;

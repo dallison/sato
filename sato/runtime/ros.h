@@ -72,9 +72,9 @@ public:
 
   absl::Status CheckAtEnd() const {
     if (addr_ != end_) {
-      return absl::InternalError(
-          absl::StrFormat("Extra data in ROSBuffer: start: %p, addr: %p, end_ %p",
-                          start_, addr_, end_));
+      return absl::InternalError(absl::StrFormat(
+          "Extra data in ROSBuffer: start: %p, addr: %p, end_ %p", start_,
+          addr_, end_));
     }
     return absl::OkStatus();
   }
@@ -83,7 +83,8 @@ public:
 
   absl::Status HasSpaceFor(size_t n) {
     char *next = addr_ + n;
-    // Off-by-one complexity here.  The end is one past the end of the ROSBuffer.
+    // Off-by-one complexity here.  The end is one past the end of the
+    // ROSBuffer.
     if (next > end_) {
       if (owned_) {
         // Expand the ROSBuffer.
@@ -113,6 +114,18 @@ public:
     }
     return absl::InternalError(
         absl::StrFormat("ROSBuffer overun when checking for %d bytes; current "
+                        "address is %p, end is %p",
+                        n, addr_, end_));
+  }
+
+  absl::Status Skip(size_t n) {
+    char *next = addr_ + n;
+    if (next <= end_) {
+      addr_ = next;
+      return absl::OkStatus();
+    }
+    return absl::InternalError(
+        absl::StrFormat("ROSBuffer overun when skipping to %d bytes; current "
                         "address is %p, end is %p",
                         n, addr_, end_));
   }

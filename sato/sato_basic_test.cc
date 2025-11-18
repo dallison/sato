@@ -38,6 +38,8 @@ TEST(SatoBasicTest, Basic) {
 
   msg.set_u1a(0x01020304);
 
+  size_t proto_serialized_size = msg.ByteSizeLong();
+
   std::string serialized;
   msg.SerializeToString(&serialized);
   ASSERT_EQ(1234, msg.x());
@@ -48,9 +50,12 @@ TEST(SatoBasicTest, Basic) {
   foo::bar::sato::TestMessage t;
   sato::ProtoBuffer buffer(serialized);
   sato::ROSBuffer ros_buffer;
-  absl::Status status = t.ProtoToROS(buffer, ros_buffer);
+  absl::Status status = t.ProtoToROS(buffer, ros_buffer, 0x1234567890abcdef);
   std::cerr << "status: " << status << std::endl;
   ASSERT_TRUE(status.ok());
+
+  size_t ros_serialized_size = t.SerializedROSSize();
+  ASSERT_EQ(ros_serialized_size, ros_buffer.size());
 
   toolbelt::Hexdump(ros_buffer.data(), ros_buffer.size(), stderr);
 
@@ -65,8 +70,14 @@ TEST(SatoBasicTest, Basic) {
   ASSERT_TRUE(status.ok());
 
   toolbelt::Hexdump(buffer2.data(), buffer2.size(), stderr);
+
   ASSERT_EQ(buffer.size(), buffer2.size());
   ASSERT_EQ(0, memcmp(buffer.data(), buffer2.data(), buffer2.size()));
+
+  // Check that the SerializedProtoSize is the same as the value given by
+  // protobuf
+  size_t serialized_size = t2.SerializedProtoSize();
+  ASSERT_EQ(serialized_size, proto_serialized_size);
 }
 
 TEST(SatoBasicTest, Multiplexer) {
@@ -83,7 +94,8 @@ TEST(SatoBasicTest, Multiplexer) {
   sato::ProtoBuffer buffer(serialized);
   foo::bar::sato::TestMessage t;
 
-  absl::Status status = sato::MultiplexerParseProto("foo.bar.TestMessage", t, buffer);
+  absl::Status status =
+      sato::MultiplexerParseProto("foo.bar.TestMessage", t, buffer);
   sato::ROSBuffer ros_buffer;
 
   status = sato::MultiplexerWriteROS("foo.bar.TestMessage", t, ros_buffer);

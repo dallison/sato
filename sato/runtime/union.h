@@ -47,7 +47,13 @@ public:
                                             msg_.SerializedProtoSize());
   }
 
-  size_t SerializedROSSize() const { return msg_.SerializedROSSize(); }
+  size_t SerializedROSSize() const {
+    size_t size = 4; // 4 bytes for the discriminator
+    if (msg_.IsPresent()) {
+      size += msg_.SerializedROSSize();
+    }
+    return size;
+  }
 
   absl::Status WriteProto(ProtoBuffer &buffer) const {
     return msg_.WriteProto(buffer);
