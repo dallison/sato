@@ -53,4 +53,6 @@ message TestMessage {
   double db = 116;
 
   map<string, int32> values = 117;
+  repeated bytes buffers = 118;
+
 }

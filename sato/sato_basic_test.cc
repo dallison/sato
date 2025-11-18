@@ -188,6 +188,7 @@ TEST(SatoBasicTest, Any) {
   // Check that the SerializedProtoSize is the same as the value given by
   // protobuf
   size_t serialized_size = t2.SerializedProtoSize();
+  std::cerr << "serialized_size: " << serialized_size << std::endl;
   ASSERT_EQ(serialized_size, proto_serialized_size);
 }
 
