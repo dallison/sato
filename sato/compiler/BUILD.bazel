@@ -6,11 +6,13 @@ cc_library(
         "enum_gen.cc",
         "gen.cc",
         "message_gen.cc",
+        "zip_utils.cc",
     ],
     hdrs = [
         "enum_gen.h",
         "gen.h",
         "message_gen.h",
+        "zip_utils.h",
     ],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",

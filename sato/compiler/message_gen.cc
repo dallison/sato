@@ -5,6 +5,7 @@
 #include "sato/compiler/message_gen.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_replace.h"
+#include "sato/compiler/zip_utils.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
@@ -161,6 +162,24 @@ MessageGenerator::MessageName(const google::protobuf::Descriptor *desc,
   return name;
 }
 
+std::string MessageGenerator::MessageROSName(const google::protobuf::Descriptor *desc) {
+  if (IsAny(desc)) {
+    return "google_protobuf/Any";
+  }
+  std::string full_name = desc->full_name();
+
+ // If the message is in our package, use the short name.
+  if (full_name.find(package_name_) == std::string::npos || desc->containing_type() != nullptr) {
+    size_t pos = full_name.rfind(".");
+    std::string base_name = full_name.substr(pos + 1);
+    std::string dirname = full_name.substr(0, pos);
+    // Replace dot with underscore in dirname
+    dirname = absl::StrReplaceAll(dirname, {{".", "_"}});
+    return dirname + "/" + base_name;
+  }
+  return desc->name();
+}
+
 std::string MessageGenerator::FieldCFieldType(
     const google::protobuf::FieldDescriptor *field) {
   switch (field->type()) {
@@ -275,7 +294,7 @@ MessageGenerator::FieldROSType(const google::protobuf::FieldDescriptor *field) {
   case google::protobuf::FieldDescriptor::TYPE_BYTES:
     return "string";
   case google::protobuf::FieldDescriptor::TYPE_MESSAGE:
-    return MessageName(field->message_type(), true);
+    return MessageROSName(field->message_type());
   case google::protobuf::FieldDescriptor::TYPE_GROUP:
     std::cerr << "Groups are not supported\n";
     exit(1);
@@ -488,41 +507,17 @@ void MessageGenerator::GenerateROSMessage(zip_t *zip, int level) {
     } else {
       ss << field->ros_type << " " << field->ros_member_name << "\n";
     }
+    ss << "\n";
   }
 
   // Extract the string from the stringstream
   std::string content = ss.str();
 
-  // Allocate buffer on heap and copy content so libzip can take ownership
-  // This ensures the data persists until libzip writes it to the zip file
-  zip_uint8_t *buffer = nullptr;
-  zip_uint64_t buffer_size = content.size();
-  if (buffer_size > 0) {
-    buffer = static_cast<zip_uint8_t *>(malloc(buffer_size));
-    if (buffer == nullptr) {
-      std::cerr << "Failed to allocate buffer for zip source\n";
-      exit(1);
-    }
-    std::memcpy(buffer, content.data(), buffer_size);
+  if (absl::Status status = AddFileToZip(zip, message_->full_name(), content); !status.ok()) {
+    std::cerr << "Failed to add file to zip: " << status.message() << "\n";
+    exit(1);
   }
 
-  // Add the contents to the zip.
-  // freep=1 means libzip will free the buffer when done
-  zip_source_t *source = zip_source_buffer(zip, buffer, buffer_size, 1);
-  if (source == nullptr) {
-    std::cerr << "Failed to create zip source: " << zip_strerror(zip) << "\n";
-    exit(1);
-  }
-  std::string filename = MessageName(message_) + ".msg";
-  zip_int64_t index =
-      zip_file_add(zip, filename.c_str(), source, ZIP_FL_ENC_UTF_8);
-  if (index < 0) {
-    std::cerr << "Failed to add file " << filename
-              << " to zip: " << zip_strerror(zip) << "\n";
-    zip_source_free(source);
-    exit(1);
-  }
-  // Note: zip_file_add takes ownership of source, so we don't free it
 }
 
 void MessageGenerator::Compile() {

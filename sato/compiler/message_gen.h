@@ -107,6 +107,7 @@ private:
   // ::sato::AnyMessage type.
   std::string MessageName(const google::protobuf::Descriptor *desc,
                           bool is_ref = false);
+  std::string MessageROSName(const google::protobuf::Descriptor *desc);
   std::string FieldCFieldType(const google::protobuf::FieldDescriptor *field);
   std::string FieldCType(const google::protobuf::FieldDescriptor *field);
   std::string FieldROSType(const google::protobuf::FieldDescriptor *field);

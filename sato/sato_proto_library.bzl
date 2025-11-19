@@ -159,7 +159,7 @@ def _sato_impl(ctx):
         ctx.attr.target_name,
     )
 
-    # Unzip zip files to a "msg" directory
+    # Unzip zip files to a "proto_msgs" directory
     # This must run AFTER _sato_action creates the zip files
     # Place the msg directory in the same location as the .sato.cc files
     # The .sato.cc files are at target_name/package_path/file.sato.cc
@@ -175,17 +175,17 @@ def _sato_impl(ctx):
                 if last_slash != -1:
                     out_dir = out[:last_slash]
                     # msg directory should be at target_name/out_dir/msg
-                    msg_dir_path = ctx.attr.target_name + "/" + out_dir + "/msg"
+                    msg_dir_path = ctx.attr.target_name + "/" + out_dir + "/proto_msgs"
                 else:
                     # File is in root, msg should be at target_name/msg
-                    msg_dir_path = ctx.attr.target_name + "/msg"
+                    msg_dir_path = ctx.attr.target_name + "/proto_msgs"
                 break
         if msg_dir_path:
             break
     
     # Fallback if no .cc files found
     if not msg_dir_path:
-        msg_dir_path = ctx.attr.target_name + "/msg"
+        msg_dir_path = ctx.attr.target_name + "/proto_msgs"
     
     msg_dir = ctx.actions.declare_directory(msg_dir_path)
     outputs.append(msg_dir)

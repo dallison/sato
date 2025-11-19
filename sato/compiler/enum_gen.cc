@@ -3,6 +3,8 @@
 // Copyright (C) 2025 David Allison.  All Rights Reserved.
 
 #include "sato/compiler/enum_gen.h"
+#include "absl/strings/str_replace.h"
+#include "sato/compiler/zip_utils.h"
 
 #include <algorithm>
 
@@ -25,37 +27,10 @@ void EnumGenerator::GenerateROSMessage(zip_t *zip) {
 
   // Extract the string from the stringstream
   std::string content = ss.str();
-
-  // Allocate buffer on heap and copy content so libzip can take ownership
-  // This ensures the data persists until libzip writes it to the zip file
-  zip_uint8_t *buffer = nullptr;
-  zip_uint64_t buffer_size = content.size();
-  if (buffer_size > 0) {
-    buffer = static_cast<zip_uint8_t *>(malloc(buffer_size));
-    if (buffer == nullptr) {
-      std::cerr << "Failed to allocate buffer for zip source\n";
-      exit(1);
-    }
-    std::memcpy(buffer, content.data(), buffer_size);
-  }
-
-  // Add the contents to the zip.
-  // freep=1 means libzip will free the buffer when done
-  zip_source_t *source = zip_source_buffer(zip, buffer, buffer_size, 1);
-  if (source == nullptr) {
-    std::cerr << "Failed to create zip source: " << zip_strerror(zip) << "\n";
+  if (absl::Status status = AddFileToZip(zip, enum_->full_name(), content); !status.ok()) {
+    std::cerr << "Failed to add file to zip: " << status.message() << "\n";
     exit(1);
   }
-  std::string filename = name + ".msg";
-  zip_int64_t index =
-      zip_file_add(zip, filename.c_str(), source, ZIP_FL_ENC_UTF_8);
-  if (index < 0) {
-    std::cerr << "Failed to add file " << filename
-              << " to zip: " << zip_strerror(zip) << "\n";
-    zip_source_free(source);
-    exit(1);
-  }
-  // Note: zip_file_add takes ownership of source, so we don't free it
 }
 
 } // namespace sato
