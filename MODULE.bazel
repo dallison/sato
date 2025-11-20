@@ -47,3 +47,17 @@ http_archive(
 #     path = "../co",
 # )
 
+# http_archive(
+#   name = "neutron",
+#   urls = ["https://github.com/dallison/neutron/archive/refs/tags/1.0.3.tar.gz"],
+#   strip_prefix = "neutron-1.0.3",
+#   integrity = "sha256-XNpB6mZSbpctyRSLXNMgw7KroXLplZdQzTZRs+LwzG8="
+# )
+
+# For local debugging of neutron library.
+bazel_dep(name = "neutron")
+local_path_override(
+   module_name = "neutron",
+   path = "../neutron",
+)
+

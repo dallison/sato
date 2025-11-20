@@ -71,3 +71,9 @@ sato_proto_library(
     deps = [":vision_proto"],
 )
 
+filegroup(
+    name = "std_msgs_dir",
+    srcs = [
+        "//sato/testdata:std_msgs",
+    ],
+)

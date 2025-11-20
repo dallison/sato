@@ -1,4 +1,5 @@
 package(default_visibility = ["//visibility:public"])
+load("@neutron//neutron:neutron_library.bzl", "neutron_serdes_library")
 
 cc_test(
     name = "sato_test",
@@ -14,16 +15,26 @@ cc_test(
     ],
 )
 
+neutron_serdes_library(
+    name = "test_ros",
+    dirs = [
+        "//sato/testdata:test_message_sato_msg_dirs",
+        "//sato/testdata:std_msgs_dir"
+    ],
+) 
+
 cc_test(
     name = "sato_basic_test",
     srcs = [
         "sato_basic_test.cc",
     ],
     deps = [
+        ":test_ros",
         "//sato/testdata:test_message_cc_proto",
         "//sato/testdata:test_message_sato",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
         "@toolbelt//toolbelt",
+        "@neutron//neutron:serdes_runtime",
     ],
 )

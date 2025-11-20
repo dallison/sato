@@ -261,7 +261,6 @@ def _split_files_impl(ctx):
     for file in ctx.files.deps:
         if file.extension == ctx.attr.ext:
             files.append(file)
-
     return [DefaultInfo(files = depset(files))]
 
 _split_files = rule(
@@ -272,38 +271,21 @@ _split_files = rule(
     implementation = _split_files_impl,
 )
 
-# Rule to extract the msg directory from sato_gen outputs
-def _extract_msg_dir_impl(ctx):
-    msg_dir = None
-    target_name = ctx.attr.target_name
-    
-    # Find the msg directory in the deps
-    # The msg directory can be at target_name/msg or target_name/package_path/msg
+def _find_proto_msgs_impl(ctx):
+    dirs = []
     for file in ctx.files.deps:
-        # Check if this is a directory
-        if file.is_directory:
-            file_path = file.path
-            short_path = file.short_path if hasattr(file, 'short_path') else file_path
-            
-            # Check if path ends with /msg (could be target_name/msg or target_name/package/msg)
-            if file_path.endswith("/msg") or short_path.endswith("/msg"):
-                # Verify it's under the target_name
-                if target_name in file_path or target_name in short_path:
-                    msg_dir = file
-                    break
-    
-    if msg_dir:
-        return [DefaultInfo(files = depset([msg_dir]))]
-    else:
-        # Return empty depset if no msg directory found (e.g., if no zip files were generated)
-        return [DefaultInfo(files = depset())]
+        if file.path.endswith("proto_msgs"):
+            dirs.append(file)
+            break
+    if not dirs:
+        fail("There are no messages to generate!")
+    return [DefaultInfo(files = depset(dirs))]
 
-_extract_msg_dir = rule(
+_find_proto_msgs = rule(
     attrs = {
         "deps": attr.label_list(mandatory = True),
-        "target_name": attr.string(mandatory = True),
     },
-    implementation = _extract_msg_dir_impl,
+    implementation = _find_proto_msgs_impl,
 )
 
 def sato_proto_library(name, deps = [], runtime = "@sato//sato/runtime:sato_runtime", add_namespace = ""):
@@ -342,11 +324,10 @@ def sato_proto_library(name, deps = [], runtime = "@sato//sato/runtime:sato_runt
     )
 
     # Create a target with _msgs suffix containing all files from the msg directory
-    msgs = name + "_msgs"
-    _extract_msg_dir(
+    msgs = name + "_msg_dirs"
+    _find_proto_msgs(
         name = msgs,
         deps = [sato],
-        target_name = name,
     )
 
     libdeps = []
